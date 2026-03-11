@@ -335,12 +335,12 @@ export default function TruthOrDare() {
       {/* ================= PHASE 2: PILIH TRUTH ATAU DARE ================= */}
       {phase === 'turn' && (
         <div style={{ textAlign: 'center', marginTop: '30px' }} className="fade-in">
-          <p style={{ color: '#94a3b8', fontSize: '16px', marginBottom: '5px' }}>Kursi Panas Kali Ini:</p>
+          <p style={{ color: '#94a3b8', fontSize: '16px', marginBottom: '5px' }}>Giliranmu:</p>
           <h1 style={{ color: currentPlayer?.gender === 'L' ? '#60a5fa' : '#f472b6', fontSize: '40px', textTransform: 'uppercase', margin: '0 0 40px 0', textShadow: '2px 2px 0px rgba(0,0,0,0.5)' }}>
             {currentPlayer?.name}
           </h1>
 
-          <h2 style={{ color: '#f8fafc', marginBottom: '20px' }}>Tentukan Nasibmu!</h2>
+          <h2 style={{ color: '#f8fafc', marginBottom: '20px' }}>Tentukan Pilihanmu!</h2>
           <div style={{ display: 'flex', gap: '15px' }}>
             <div onClick={() => generatePrompt('truth')} style={{ flex: 1, background: '#3b82f6', color: 'white', padding: '40px 10px', borderRadius: '12px', fontSize: '24px', fontWeight: '900', cursor: 'pointer', boxShadow: '0 10px 0 #1d4ed8', transition: 'transform 0.1s' }} onMouseDown={e => e.currentTarget.style.transform = 'translateY(5px)'}>
               TRUTH
