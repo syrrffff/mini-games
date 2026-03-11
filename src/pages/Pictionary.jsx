@@ -20,9 +20,9 @@ export default function Pictionary() {
   const canvasRef = useRef(null);
   const isDrawingRef = useRef(false);
   const colorRef = useRef('#000000');
-  const chatContainerRef = useRef(null); // Ref baru khusus untuk scroll kotak chat
+  const chatContainerRef = useRef(null);
 
-  // 1. KONEKSI KE FIREBASE
+  // 1. KONEKSI & RECONNECT
   useEffect(() => {
     const savedRoom = localStorage.getItem('roomCode');
     const savedName = localStorage.getItem('playerName');
@@ -37,16 +37,12 @@ export default function Pictionary() {
     const roomRef = ref(db, `rooms/${code}`);
     const playerRef = ref(db, `rooms/${code}/players/${name}`);
 
+    // Auto-hapus jika tab tiba-tiba ditutup
+    onDisconnect(playerRef).remove();
+
     get(playerRef).then((snapshot) => {
       if (!snapshot.exists()) {
         update(playerRef, { score: 0, isReady: false });
-      }
-    });
-
-    onDisconnect(playerRef).remove();
-    get(ref(db, `rooms/${code}/players/${name}`)).then((snapshot) => {
-      if (!snapshot.exists()) {
-        update(ref(db, `rooms/${code}/players/${name}`), { score: 0, isReady: false });
       }
     });
 
@@ -83,12 +79,10 @@ export default function Pictionary() {
     const playersRef = ref(db, `rooms/${roomCode}/players`);
     const snapshot = await get(playersRef);
 
-    // Cek apakah dia orang terakhir di dalam room
+    // Hapus seluruh room jika ini orang terakhir
     if (snapshot.exists() && Object.keys(snapshot.val()).length <= 1) {
-      // Jika ya, HAPUS SELURUH ROOM (reset bersih)
       remove(ref(db, `rooms/${roomCode}`));
     } else {
-      // Jika tidak, hapus dirinya sendiri saja
       remove(ref(db, `rooms/${roomCode}/players/${playerName}`));
     }
 
@@ -97,7 +91,7 @@ export default function Pictionary() {
     setRoomData(null);
   };
 
-  // 2. LOGIKA STATUS & AUTO-START
+  // 2. LOGIKA STATUS & URUTAN GILIRAN (TURN ORDER)
   const toggleReady = () => {
     const currentReady = roomData?.players[playerName]?.isReady || false;
     update(ref(db, `rooms/${roomCode}/players/${playerName}`), { isReady: !currentReady });
@@ -105,33 +99,46 @@ export default function Pictionary() {
 
   const playersList = roomData?.players ? Object.keys(roomData.players) : [];
   const allReady = playersList.length > 1 && playersList.every(p => roomData.players[p].isReady);
-  const currentDrawerName = playersList[roomData?.gameState?.currentDrawerIndex || 0];
+
+  // Ambil urutan yang sudah "dikunci" saat game mulai
+  const turnOrder = roomData?.gameState?.turnOrder || [];
+  const currentDrawerName = turnOrder[roomData?.gameState?.currentDrawerIndex || 0];
   const isMyTurn = currentDrawerName === playerName;
   const isPlaying = roomData?.gameState?.status === "playing";
 
+  // Deteksi Penonton: Game sedang jalan tapi nama pemain tidak ada di daftar turnOrder ronde ini
+  const isGameActive = roomData?.gameState?.status === "playing" || roomData?.gameState?.status === "starting";
+  const isSpectator = isGameActive && !turnOrder.includes(playerName);
+
   const startGameSequence = () => {
+    // Kunci pemain yang ada saat ini ke dalam array turnOrder
+    const activePlayers = Object.keys(roomData.players);
+
     update(ref(db, `rooms/${roomCode}/gameState`), {
       status: "starting",
       currentDrawerIndex: 0,
+      turnOrder: activePlayers,
       currentWord: WORD_LIST[Math.floor(Math.random() * WORD_LIST.length)],
       canvasData: ""
     });
     push(ref(db, `rooms/${roomCode}/chat`), { sender: "Sistem", text: "Semua Ready! Game Dimulai!", isCorrect: true });
-    playersList.forEach(p => update(ref(db, `rooms/${roomCode}/players/${p}`), { isReady: false }));
+    activePlayers.forEach(p => update(ref(db, `rooms/${roomCode}/players/${p}`), { isReady: false }));
   };
 
   useEffect(() => {
     if ((roomData?.gameState?.status === "waiting" || !roomData?.gameState?.status) && allReady) {
+      // Pastikan hanya pemain pertama di room yang mengeksekusi ini
       if (playersList[0] === playerName) startGameSequence();
     }
   }, [allReady, roomData?.gameState?.status]);
 
   const nextTurn = () => {
     const nextIndex = roomData.gameState.currentDrawerIndex + 1;
-    if (nextIndex >= playersList.length) {
+    // Cek apakah sudah semua pemain di turnOrder mendapat giliran
+    if (nextIndex >= turnOrder.length) {
       update(ref(db, `rooms/${roomCode}/gameState`), { status: "waiting" });
       push(ref(db, `rooms/${roomCode}/chat`), { sender: "Sistem", text: "Satu putaran selesai! Silakan Ready kembali.", isCorrect: true });
-      playersList.forEach(p => update(ref(db, `rooms/${roomCode}/players/${p}`), { isReady: false }));
+      Object.keys(roomData.players).forEach(p => update(ref(db, `rooms/${roomCode}/players/${p}`), { isReady: false }));
     } else {
       update(ref(db, `rooms/${roomCode}/gameState`), {
         status: "starting",
@@ -153,6 +160,7 @@ export default function Pictionary() {
         else {
           clearInterval(interval);
           setCountdown(null);
+          // Hanya penggambar yang memulai timer agar sinkron
           if (isMyTurn) update(ref(db, `rooms/${roomCode}/gameState`), { status: 'playing', turnEndTime: Date.now() + 120000 });
         }
       }, 1000);
@@ -184,7 +192,7 @@ export default function Pictionary() {
     }
   }, [roomData?.gameState?.status, roomData?.gameState?.turnEndTime, isMyTurn]);
 
-  // FIX AUTO-SCROLL LONCAT: Hanya scroll kotak obrolan, bukan layarnya, dan hanya saat ada chat masuk
+  // Scroll obrolan
   const chatMsgCount = roomData?.chat ? Object.keys(roomData.chat).length : 0;
   useEffect(() => {
     if (chatContainerRef.current) {
@@ -192,30 +200,45 @@ export default function Pictionary() {
     }
   }, [chatMsgCount]);
 
-  // 3. FUNGSI MENGGAMBAR & PALET
+  // 3. FUNGSI MENGGAMBAR & KOORDINAT AKURAT (FIXED)
   const getCoordinates = (e) => {
-    const rect = canvasRef.current.getBoundingClientRect();
-    if (e.touches && e.touches.length > 0) return { x: e.touches[0].clientX - rect.left, y: e.touches[0].clientY - rect.top };
-    return { x: e.clientX - rect.left, y: e.clientY - rect.top };
+    const canvas = canvasRef.current;
+    const rect = canvas.getBoundingClientRect();
+
+    // Hitung rasio asli canvas dibagi ukuran render CSS
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
+
+    let clientX, clientY;
+    if (e.touches && e.touches.length > 0) {
+      clientX = e.touches[0].clientX;
+      clientY = e.touches[0].clientY;
+    } else {
+      clientX = e.clientX;
+      clientY = e.clientY;
+    }
+
+    return {
+      x: (clientX - rect.left) * scaleX,
+      y: (clientY - rect.top) * scaleY
+    };
   };
 
   const startDrawing = (e) => {
-    if (!isMyTurn || !isPlaying) return;
+    if (!isMyTurn || !isPlaying || isSpectator) return;
     isDrawingRef.current = true;
     const ctx = canvasRef.current.getContext('2d');
     const { x, y } = getCoordinates(e);
     ctx.beginPath();
     ctx.moveTo(x, y);
     ctx.strokeStyle = colorRef.current;
-
-    // FIX GARIS KEBESARAN: Ukuran pensil diperkecil dari 4 ke 2
     ctx.lineWidth = 2;
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
   };
 
   const draw = (e) => {
-    if (!isDrawingRef.current || !isMyTurn || !isPlaying) return;
+    if (!isDrawingRef.current || !isMyTurn || !isPlaying || isSpectator) return;
     const ctx = canvasRef.current.getContext('2d');
     const { x, y } = getCoordinates(e);
     ctx.lineTo(x, y);
@@ -223,7 +246,7 @@ export default function Pictionary() {
   };
 
   const stopDrawing = () => {
-    if (!isDrawingRef.current || !isMyTurn || !isPlaying) return;
+    if (!isDrawingRef.current || !isMyTurn || !isPlaying || isSpectator) return;
     isDrawingRef.current = false;
     update(ref(db, `rooms/${roomCode}/gameState`), { canvasData: canvasRef.current.toDataURL() });
   };
@@ -290,7 +313,7 @@ export default function Pictionary() {
         </div>
       ) : (
         <div style={{ display: 'flex', justifyContent: 'space-between', background: '#334155', padding: '8px 10px', borderRadius: '6px', fontWeight: 'bold', fontSize: '12px' }}>
-          <span>{isMyTurn ? `Gambarkan: ${roomData.gameState.currentWord}` : `${currentDrawerName} sedang menggambar...`}</span>
+          <span>{isMyTurn ? `Gambarkan: ${roomData.gameState.currentWord}` : `${currentDrawerName || 'Seseorang'} sedang menggambar...`}</span>
           <span style={{ color: timeLeft <= 10 ? '#ef4444' : '#facc15' }}>⏳ {Math.floor(timeLeft / 60)}:{(timeLeft % 60).toString().padStart(2, '0')}</span>
         </div>
       )}
@@ -311,7 +334,22 @@ export default function Pictionary() {
       {/* CANVAS */}
       <div className="canvas-container" style={{ position: 'relative', margin: '0' }}>
         {countdown && <div className="overlay-anim">{countdown}</div>}
-        {roleAnim && <div className="overlay-anim" style={{ fontSize: '1.2rem' }}>{isMyTurn ? "🖌️ Giliranmu!" : "🤔 Siap Tebak!"}</div>}
+
+        {/* Pesan Role */}
+        {roleAnim && !isSpectator && (
+          <div className="overlay-anim" style={{ fontSize: '1.2rem' }}>
+            {isMyTurn ? "🖌️ Giliranmu!" : "🤔 Siap Tebak!"}
+          </div>
+        )}
+
+        {/* Layar Penonton */}
+        {isSpectator && (
+          <div style={{ position: 'absolute', top: 10, left: 0, right: 0, textAlign: 'center', zIndex: 20, color: '#facc15', fontWeight: 'bold', textShadow: '1px 1px 2px black' }}>
+            👀 Mode Penonton (Tunggu ronde selesai)
+          </div>
+        )}
+
+        {/* Pelindung agar selain penggambar tidak bisa mencoret */}
         {isPlaying && !isMyTurn && <div style={{ position: 'absolute', inset: 0, zIndex: 10 }}></div>}
 
         <canvas
@@ -322,9 +360,8 @@ export default function Pictionary() {
         />
       </div>
 
-      {/* CHAT AREA SELALU AKTIF */}
+      {/* CHAT AREA */}
       <div className="chat-container">
-        {/* Tambahkan ref ke div chat-history */}
         <div className="chat-history" ref={chatContainerRef}>
           {roomData?.chat ? Object.values(roomData.chat).map((msg, i) => (
             <div key={i} className={`chat-message ${msg.isCorrect ? 'correct' : ''}`}>
@@ -333,13 +370,20 @@ export default function Pictionary() {
           )) : <p style={{ color: '#64748b', fontSize: '10px', textAlign: 'center' }}>Obrolan kosong...</p>}
         </div>
 
-        <form onSubmit={submitGuess} className="chat-input-area">
-          <input placeholder={(!isMyTurn || !isPlaying) ? "Ketik sesuatu..." : "Tunggu giliran tebak..."} value={guessInput} onChange={e => setGuessInput(e.target.value)} disabled={isMyTurn && isPlaying} />
-          <button type="submit" className="btn-primary" disabled={isMyTurn && isPlaying}>Kirim</button>
-        </form>
+        {/* Jika penonton, blokir input tebakan */}
+        {isSpectator ? (
+          <div style={{ padding: '8px', textAlign: 'center', background: '#334155', color: '#94a3b8', fontSize: '12px', borderTop: '2px solid #1e293b' }}>
+            Kamu hanya bisa menonton putaran ini.
+          </div>
+        ) : (
+          <form onSubmit={submitGuess} className="chat-input-area">
+            <input placeholder={(!isMyTurn || !isPlaying) ? "Ketik sesuatu..." : "Tunggu giliran tebak..."} value={guessInput} onChange={e => setGuessInput(e.target.value)} disabled={isMyTurn && isPlaying} />
+            <button type="submit" className="btn-primary" disabled={isMyTurn && isPlaying}>Kirim</button>
+          </form>
+        )}
       </div>
 
-      {/* LEADERBOARD KECIL */}
+      {/* LEADERBOARD */}
       <div className="player-list">
         {playersList.map((name) => (
           <div key={name} className="player-item">
@@ -347,6 +391,7 @@ export default function Pictionary() {
               {name}
               {roomData?.gameState?.status === "waiting" && (roomData.players[name].isReady ? " ✅" : " ⏳")}
               {isPlaying && currentDrawerName === name ? ' 🖌️' : ''}
+              {isGameActive && !turnOrder.includes(name) ? ' 👀' : ''}
             </span>
             <span className="score-badge">{roomData.players[name].score || 0} Pts</span>
           </div>
