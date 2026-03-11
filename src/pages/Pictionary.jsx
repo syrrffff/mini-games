@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { db } from '../firebase';
-import { ref, update, onValue, get, remove, push } from 'firebase/database';
+import { ref, update, onValue, get, remove, push, onDisconnect } from 'firebase/database';
 
 const WORD_LIST = ["Kucing", "Sepeda", "Rumah", "Pohon", "Mobil", "Gunung", "Gitar", "Laptop", "Pesawat", "Buku", "Kacamata", "Sepatu"];
 const PALETTE = ['#000000', '#ef4444', '#3b82f6', '#22c55e', '#facc15'];
@@ -35,6 +35,15 @@ export default function Pictionary() {
 
   const connectToRoom = (code, name) => {
     const roomRef = ref(db, `rooms/${code}`);
+    const playerRef = ref(db, `rooms/${code}/players/${name}`);
+
+    get(playerRef).then((snapshot) => {
+      if (!snapshot.exists()) {
+        update(playerRef, { score: 0, isReady: false });
+      }
+    });
+
+    onDisconnect(playerRef).remove();
     get(ref(db, `rooms/${code}/players/${name}`)).then((snapshot) => {
       if (!snapshot.exists()) {
         update(ref(db, `rooms/${code}/players/${name}`), { score: 0, isReady: false });
@@ -70,8 +79,19 @@ export default function Pictionary() {
     connectToRoom(roomCode, playerName);
   };
 
-  const exitRoom = () => {
-    remove(ref(db, `rooms/${roomCode}/players/${playerName}`));
+  const exitRoom = async () => {
+    const playersRef = ref(db, `rooms/${roomCode}/players`);
+    const snapshot = await get(playersRef);
+
+    // Cek apakah dia orang terakhir di dalam room
+    if (snapshot.exists() && Object.keys(snapshot.val()).length <= 1) {
+      // Jika ya, HAPUS SELURUH ROOM (reset bersih)
+      remove(ref(db, `rooms/${roomCode}`));
+    } else {
+      // Jika tidak, hapus dirinya sendiri saja
+      remove(ref(db, `rooms/${roomCode}/players/${playerName}`));
+    }
+
     localStorage.clear();
     setIsJoined(false);
     setRoomData(null);
