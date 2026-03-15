@@ -179,7 +179,7 @@ export default function Roulette() {
         }
       `}</style>
 
-      <h2 style={{ textAlign: 'center', margin: 0 }}>🎯 Roulette</h2>
+      <h2 style={{ textAlign: 'center', margin: 0 }}>🎯 Spinner Wheels</h2>
 
       <form onSubmit={addPlayer} style={{ display: 'flex', gap: '8px' }}>
         <input className="input-field" value={inputName} onChange={(e) => setInputName(e.target.value)} placeholder="Ketik nama teman..." disabled={isSpinning} style={{ marginBottom: 0 }} />
@@ -224,7 +224,7 @@ export default function Roulette() {
       </div>
 
       <button onClick={spin} disabled={isSpinning || players.length < 2} className="btn-action btn-danger" style={{ fontSize: '20px', letterSpacing: '2px', padding: '18px', background: isSpinning ? '#64748b' : '#ef4444' }}>
-        {isSpinning ? 'MEMUTAR...' : 'GAS PUTAR!'}
+        {isSpinning ? 'MEMUTAR...' : 'PUTAR!'}
       </button>
 
     </div>
