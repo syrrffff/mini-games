@@ -4,26 +4,52 @@ import { Link } from 'react-router-dom';
 import { ref, update, onValue, get, remove, push, onDisconnect, query, orderByChild, limitToLast, increment } from 'firebase/database';
 import ConfirmModal from '../components/ConfirmModal';
 
-// --- DATABASE TEBAK GAMBAR (100+ KATA SUPER ABSURD & RANDOM) ---
+// --- DATABASE TEBAK GAMBAR (200+ KATA BAHASA TONGKRONGAN & RANDOM) ---
 const WORD_LIST = [
+  // Level Pemanasan & Benda Sehari-hari
   "Kucing", "Sepeda", "Rumah", "Pohon", "Mobil", "Gunung", "Gitar", "Laptop", "Pesawat", "Buku",
   "Kacamata", "Sepatu", "Jam Tangan", "Kopi", "Kipas Angin", "Dispenser", "Kulkas", "Mesin Cuci",
-  "Rice Cooker", "Setrika", "Jemuran", "Sapu Lidi", "Pengki", "Ember", "Gayung", "Sikat Gigi",
-  "Sampo Sachet", "Gunting Kuku", "Cotton Bud", "Karet Gelang", "Peniti", "Televisi Tabung",
+  "Magic Com", "Setrikaan", "Jemuran", "Sapu Lidi", "Pengki", "Ember", "Gayung", "Sikat Gigi",
+  "Shampo Sachet", "Gunting Kuku", "Cotton Bud", "Karet Gelang", "Peniti", "TV Tabung",
   "Kalkulator", "Gembok", "Obeng", "Palu", "Gergaji", "Kawat Gigi", "Gigi Palsu", "Rambut Palsu",
+  "Galon Air", "Tabung Gas", "Piring Kaca", "Gelas Plastik", "Batu Bata", "Lem Korea", "Bantal Guling",
+
+  // Level Tongkrongan, Jalanan & Situasi
   "Polisi Tidur", "Lampu Merah", "Tiang Listrik", "Angkot", "Becak", "Gerobak Bakso", "Pintu Tol",
-  "Zebra Cross", "Tukang Parkir", "Helm Bogo", "Knalpot Racing", "Spion", "Tilang Polisi", "CCTV",
-  "Jas Hujan Kelelawar", "Warnet", "Warkop", "Sinyal Lemah", "Centang Biru", "Colokan Listrik",
-  "Powerbank", "Headset Kusut", "Es Teh Plastik", "Nasi Bungkus Karet Dua", "Seblak Ceker",
-  "Martabak Telur", "Tahu Bulat", "Gorengan", "Kerupuk Putih", "Sate Ayam", "Es Campur", "Pete",
-  "Jengkol", "Durian", "Kopi Hitam", "Mendoan", "Mie Ayam", "Bakso Beranak", "Kecoak Terbang",
-  "Nyamuk Kawin", "Lalat", "Cicak Putus Ekor", "Tokek", "Ulat Bulu", "Kelabang", "Buaya Darat",
-  "Gurita", "Kaktus", "Bunga Bangkai", "Pohon Beringin", "Awan Mendung", "Petir", "Pelangi",
-  "Bulu Babi", "Lintah", "Tikus Got", "Burung Hantu", "Kucing Oyen", "Dompet Kosong", "Sakit Gigi",
-  "Kesemutan", "Kentut", "Masuk Angin", "Tanggal Tua", "Cicilan", "Bau Badan", "Kutu Rambut",
-  "Panu", "Ketombe", "Kurang Tidur", "Ngantuk Berat", "Patah Hati", "Mimpi Buruk", "Kebelet Boker",
-  "Lupa Password", "Mabuk Laut", "Kesandung Batu", "Gaji Numpang Lewat", "Pocong", "Tuyul",
-  "Kuntilanak", "Alien", "UFO", "Ninja", "Zombie", "Bajak Laut", "Putri Duyung", "Malaikat"
+  "Zebra Cross", "Tukang Parkir", "Helm Bogo", "Knalpot Racing", "Kaca Spion", "Kena Tilang", "CCTV",
+  "Jas Hujan Ponco", "Warnet", "Warkop", "Sinyal Jelek", "Centang Biru", "Colokan",
+  "Powerbank", "Headset Kusut", "Antena TV", "Stik PS", "Korek Api", "Asbak", "Uang Koin","Banjir",
+
+  // Level Makanan & Minuman
+  "Es Teh Plastik", "Nasi Bungkus Karet Dua", "Seblak Ceker", "Martabak Telor", "Tahu Bulat",
+  "Gorengan", "Kerupuk Putih", "Sate Ayam", "Es Campur", "Pete", "Jengkol", "Durian",
+  "Kopi Hitam", "Mendoan", "Mie Ayam", "Bakso Beranak", "Sosis Bakar", "Ayam Geprek", "Susu Saset",
+
+  // Level Tumbuhan & Buah-buahan
+  "Pisang", "Semangka", "Rambutan", "Salak", "Manggis", "Daun Singkong", "Ganja", "Pohon Pisang",
+  "Kangkung", "Cabe Rawit", "Bawang Merah", "Jeruk Nipis", "Kelapa Muda", "Rumput Liar", "Jamur",
+  "Bunga Matahari", "Bunga Mawar", "Kaktus", "Bunga Bangkai", "Pohon Beringin",
+
+  // Level Hewan & Alam
+  "Kecoa Terbang", "Nyamuk Kawin", "Lalat", "Cicak Putus Ekor", "Tokek", "Ulat Bulu", "Kelabang",
+  "Buaya Darat", "Gurita", "Bulu Babi", "Lintah", "Tikus Got", "Burung Hantu", "Kucing Oyen",
+  "Kuda Nil", "Jerapah", "Ular Kobra", "Monyet", "Beruang", "Burung Unta", "Ikan Hiu", "Paus",
+  "Anjing Kampung", "Bebek", "Angsa", "Lumba-lumba", "Kelelawar", "Awan Mendung", "Petir", "Pelangi",
+
+  // Level Pekerjaan & Profesi (Bikin mikir cara gambarnya)
+  "Tukang Cukur", "Tukang Pijet", "Kurir Paket", "Supir Ojol", "Satpam", "Dokter Gigi",
+  "Guru Killer", "Dosen Pembimbing", "Kuli Bangunan", "Tukang Sate", "Pilot", "Pramugari",
+  "Pemadam Kebakaran", "Artis TikTok", "Tukang Sedot WC", "Tukang Galon", "Kasir Indomaret",
+
+  // Level KENA MENTAL / Abstrak / Situasi Lucu (DIJAMIN NGAKAK)
+  "Dompet Kosong", "Sakit Gigi", "Kesemutan", "Kentut", "Masuk Angin", "Tanggal Tua", "Cicilan",
+  "Bau Ketek", "Kutu Rambut", "Panu", "Ketombe", "Kurang Tidur", "Ngantuk Berat", "Patah Hati",
+  "Mimpi Buruk", "Kebelet Boker", "Lupa Password", "Mabuk Laut", "Kesandung Batu", "Gaji Numpang Lewat",
+  "Nahan Nangis", "Lagi Mandi", "Lupa Pake Sempak",
+
+  // Level Mistis / Fantasi / Kostum
+  "Pocong", "Tuyul", "Kuntilanak", "Alien", "UFO", "Ninja", "Zombie", "Bajak Laut", "Putri Duyung",
+  "Malaikat", "Tuyul Mandi", "Babi Ngepet", "Drakula"
 ];
 
 const PALETTE = ['#000000', '#ef4444', '#3b82f6', '#22c55e', '#facc15'];
