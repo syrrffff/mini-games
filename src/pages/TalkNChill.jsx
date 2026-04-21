@@ -43,6 +43,7 @@ const QUESTIONS = [
   "Apa satu kebiasaan toxic yang mau lu tinggalin di tahun ini?",
   "Kalau lu cuma boleh makan 1 jenis makanan seumur hidup, lu bakal pilih makanan apa?",
   "Menurut lu, lebih sakit ditinggalin pas lagi sayang-sayangnya, atau ditolak pas lagi PDKT?",
+  "Apa kebiasaan lu yang susah lu ubah dari dulu?",
   "Apa hal yang paling lu syukurin terjadi di hidup lu sampai hari ini?"
 ];
 
