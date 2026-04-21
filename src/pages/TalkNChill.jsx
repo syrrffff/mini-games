@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
+import ConfirmModal from '../components/ConfirmModal';
 
 // --- DATABASE PERTANYAAN (DEEP TALK, OPINI, CHILL) ---
 const QUESTIONS = [
@@ -55,7 +56,6 @@ const playSound = (type) => {
     const now = ctx.currentTime;
 
     if (type === 'shuffle') {
-      // Suara sreeek (ngocok kartu)
       const osc = ctx.createOscillator(); const gain = ctx.createGain();
       osc.connect(gain); gain.connect(ctx.destination);
       osc.type = 'sawtooth';
@@ -65,7 +65,6 @@ const playSound = (type) => {
       gain.gain.linearRampToValueAtTime(0, now + 0.3);
       osc.start(now); osc.stop(now + 0.3);
     } else if (type === 'reveal') {
-      // Suara cling (kartu kebuka)
       const osc = ctx.createOscillator(); const gain = ctx.createGain();
       osc.connect(gain); gain.connect(ctx.destination);
       osc.type = 'sine';
@@ -83,31 +82,37 @@ export default function TalkNChill() {
   const [usedQuestions, setUsedQuestions] = useState(() => JSON.parse(localStorage.getItem('tnc_usedQuestions')) || []);
   const [isShuffling, setIsShuffling] = useState(false);
 
-  // Simpan state ke LocalStorage agar anti-refresh hilang
+  // STATE BARU UNTUK ALERT MODAL
+  const [alertData, setAlertData] = useState({ isOpen: false, title: '', message: '' });
+
+  // Simpan state ke LocalStorage
   useEffect(() => {
     if (currentCard) localStorage.setItem('tnc_currentCard', currentCard);
     localStorage.setItem('tnc_usedQuestions', JSON.stringify(usedQuestions));
   }, [currentCard, usedQuestions]);
 
   const drawCard = () => {
-    if (isShuffling) return; // Mencegah double click
-    
+    if (isShuffling) return;
+
     playSound('shuffle');
     setIsShuffling(true);
 
-    // Animasi jeda waktu kocok kartu (800ms)
     setTimeout(() => {
       let availableQuestions = QUESTIONS.filter(q => !usedQuestions.includes(q));
 
-      // Jika pertanyaan habis, reset ulang
+      // Jika pertanyaan habis, panggil Modal lalu reset
       if (availableQuestions.length === 0) {
-        alert("Wow! Kalian udah bahas semua topik. Kartu akan dikocok ulang dari awal!");
+        setAlertData({
+          isOpen: true,
+          title: "🔄 Topik Habis!",
+          message: "Wow! Kalian udah bahas semua topik malam ini. Tumpukan kartu akan otomatis dikocok ulang dari awal ya!"
+        });
         availableQuestions = [...QUESTIONS];
         setUsedQuestions([]);
       }
 
       const randomQ = availableQuestions[Math.floor(Math.random() * availableQuestions.length)];
-      
+
       setCurrentCard(randomQ);
       setUsedQuestions(prev => [...prev, randomQ]);
       setIsShuffling(false);
@@ -118,7 +123,17 @@ export default function TalkNChill() {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', position: 'relative', marginTop: '10px' }}>
-      
+
+      {/* MODAL PERINGATAN KARTU HABIS */}
+      <ConfirmModal
+        isOpen={alertData.isOpen}
+        title={alertData.title}
+        message={alertData.message}
+        confirmText="Lanjut Gas!"
+        confirmColor="#a855f7" // Menggunakan warna ungu tema Talk n Chill
+        onConfirm={() => setAlertData({ ...alertData, isOpen: false })}
+      />
+
       {/* INJECT CSS ANIMASI 3D KARTU */}
       <style>{`
         .card-container {
@@ -189,7 +204,7 @@ export default function TalkNChill() {
       {/* AREA KARTU */}
       <div className="card-container">
         <div className={`card-inner ${currentCard && !isShuffling ? 'flipped' : ''} ${isShuffling ? 'shuffling' : ''}`}>
-          
+
           {/* BAGIAN BELAKANG KARTU (Saat Belum Dibuka / Sedang Dikocok) */}
           <div className="card-face card-front">
             <span style={{ fontSize: '60px', marginBottom: '10px' }}>🃏</span>
@@ -211,8 +226,8 @@ export default function TalkNChill() {
       </div>
 
       {/* TOMBOL TARIK KARTU */}
-      <button 
-        onClick={drawCard} 
+      <button
+        onClick={drawCard}
         disabled={isShuffling}
         style={{
           width: '100%', maxWidth: '320px', padding: '18px',
