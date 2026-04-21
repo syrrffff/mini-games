@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { db } from '../firebase';
 import { Link } from 'react-router-dom';
-import { ref, update, onValue, get, remove, push, onDisconnect } from 'firebase/database';
+import { ref, update, onValue, get, remove, push, onDisconnect, query, orderByChild, limitToLast, increment } from 'firebase/database';
 import ConfirmModal from '../components/ConfirmModal';
 
 // --- DATABASE TEBAK GAMBAR (100+ KATA SUPER ABSURD & RANDOM) ---
@@ -62,7 +62,7 @@ const playSound = (type) => {
       osc.frequency.setValueAtTime(523.25, now + 0.1); osc.frequency.setValueAtTime(659.25, now + 0.2);
       gain.gain.setValueAtTime(0.1, now); gain.gain.linearRampToValueAtTime(0, now + 0.8);
       osc.start(now); osc.stop(now + 0.8);
-    } else if (type === 'tick') { // Suara tik tok 5 detik terakhir
+    } else if (type === 'tick') {
       osc.type = 'square'; osc.frequency.setValueAtTime(900, now);
       gain.gain.setValueAtTime(0.05, now); gain.gain.exponentialRampToValueAtTime(0.001, now + 0.1);
       osc.start(now); osc.stop(now + 0.1);
@@ -84,7 +84,10 @@ export default function Pictionary() {
 
   const [showTooltip, setShowTooltip] = useState(false);
 
-  // State untuk melacak kata yang sudah digunakan & Timer pilih kata
+  // State Leaderboard
+  const [leaderboard, setLeaderboard] = useState([]);
+
+  // State Riwayat Kata & Timer
   const [usedWords, setUsedWords] = useState(() => JSON.parse(localStorage.getItem('pict_usedWords')) || []);
   const [chooseTimer, setChooseTimer] = useState(8);
 
@@ -95,9 +98,27 @@ export default function Pictionary() {
   const isDrawingRef = useRef(false);
   const colorRef = useRef('#000000');
   const chatContainerRef = useRef(null);
-
-  // REFERENSI WAKTU SERVER FIREBASE (Mencegah bug sinkronisasi waktu HP)
   const serverOffsetRef = useRef(0);
+
+  // --- AMBIL DATA LEADERBOARD SAAT APLIKASI DIBUKA ---
+  useEffect(() => {
+    if (!isJoined) {
+      const currentMonth = new Date().toISOString().slice(0, 7); // Contoh: "2026-04"
+      const lbRef = query(ref(db, `leaderboard/${currentMonth}`), orderByChild('score'), limitToLast(10));
+
+      const unsub = onValue(lbRef, (snapshot) => {
+        if (snapshot.exists()) {
+          const data = snapshot.val();
+          // Ubah object ke array lalu urutkan dari skor tertinggi
+          const lbArray = Object.values(data).sort((a, b) => b.score - a.score);
+          setLeaderboard(lbArray);
+        } else {
+          setLeaderboard([]);
+        }
+      });
+      return () => unsub();
+    }
+  }, [isJoined]);
 
   useEffect(() => {
     const savedRoom = localStorage.getItem('roomCode');
@@ -105,7 +126,6 @@ export default function Pictionary() {
     if (savedRoom && savedName) { setRoomCode(savedRoom); setPlayerName(savedName); connectToRoom(savedRoom, savedName); }
   }, []);
 
-  // Ambil offset waktu server Firebase
   useEffect(() => {
     const offsetRef = ref(db, ".info/serverTimeOffset");
     const unsub = onValue(offsetRef, (snap) => {
@@ -268,7 +288,7 @@ export default function Pictionary() {
     });
   };
 
-  // --- SINKRONISASI ANIMASI 3..2..1 UNTUK SEMUA ORANG ---
+  // --- SINKRONISASI ANIMASI 3..2..1 ---
   useEffect(() => {
     if (roomData?.gameState?.status === 'starting') {
       let count = 3;
@@ -286,8 +306,6 @@ export default function Pictionary() {
         } else {
           clearInterval(interval);
           setCountdown(null);
-          // HANYA penggambar yang push waktu baru, agar tidak ganda.
-          // Waktu dikalkulasi dari waktu satelit server Firebase.
           if (isMyTurn) {
             const currentServerTime = Date.now() + serverOffsetRef.current;
             update(ref(db, `rooms/${roomCode}/gameState`), {
@@ -312,14 +330,13 @@ export default function Pictionary() {
     }
   }, [roomData?.gameState?.status]);
 
-  // --- SUARA DETIK TERAKHIR ---
   useEffect(() => {
     if (roomData?.gameState?.status === 'playing' && timeLeft <= 5 && timeLeft > 0) {
       playSound('tick');
     }
   }, [timeLeft, roomData?.gameState?.status]);
 
-  // --- TIMER GAMEPLAY UTAMA (SINKRON SEMPURNA) ---
+  // --- TIMER GAMEPLAY & PEMBERIAN POIN LEADERBOARD GLOBAL ---
   useEffect(() => {
     if (roomData?.gameState?.status === 'playing' && roomData?.gameState?.turnEndTime) {
       const interval = setInterval(() => {
@@ -330,7 +347,17 @@ export default function Pictionary() {
           clearInterval(interval);
           if (isMyTurn) {
              const currentScore = roomData.players[playerName].score || 0;
-             if (correctGuessers.length === 0) update(ref(db, `rooms/${roomCode}/players/${playerName}`), { score: currentScore + 10 });
+             if (correctGuessers.length === 0) {
+               // Tambah poin di room
+               update(ref(db, `rooms/${roomCode}/players/${playerName}`), { score: currentScore + 10 });
+
+               // Tambah poin di Leaderboard Global
+               const currentMonth = new Date().toISOString().slice(0, 7);
+               const safeKey = playerName.toLowerCase().replace(/[.#$\[\]]/g, '_');
+               update(ref(db, `leaderboard/${currentMonth}/${safeKey}`), {
+                 score: increment(10), name: playerName
+               });
+             }
              update(ref(db, `rooms/${roomCode}/gameState`), { status: 'roundEnd', endReason: 'timeup' });
           }
           setTimeLeft(0);
@@ -412,7 +439,16 @@ export default function Pictionary() {
         const points = Math.max(2, 10 - (correctGuessers.length * 2));
         const newCorrectGuessers = [...correctGuessers, playerName];
 
+        // Tambah poin di room
         update(ref(db, `rooms/${roomCode}/players/${playerName}`), { score: (roomData.players[playerName].score || 0) + points });
+
+        // Tambah poin di Leaderboard Global
+        const currentMonth = new Date().toISOString().slice(0, 7);
+        const safeKey = playerName.toLowerCase().replace(/[.#$\[\]]/g, '_');
+        update(ref(db, `leaderboard/${currentMonth}/${safeKey}`), {
+          score: increment(points), name: playerName
+        });
+
         update(ref(db, `rooms/${roomCode}/gameState`), { correctGuessers: newCorrectGuessers });
         push(ref(db, `rooms/${roomCode}/chat`), { sender: "Sistem", text: `${playerName} MENEBAK BENAR! (+${points} Pts)`, isCorrect: true });
 
@@ -431,17 +467,42 @@ export default function Pictionary() {
     return Object.entries(roomData.players).map(([name, data]) => ({ name, score: data.score || 0 })).sort((a, b) => b.score - a.score).slice(0, 3);
   };
 
-  // --- RENDER SCREEN BELUM MASUK ROOM ---
+  // --- RENDER SCREEN BELUM MASUK ROOM + LEADERBOARD ---
   if (!isJoined) {
     return (
       <div>
         <ConfirmModal isOpen={alertData.isOpen} title={alertData.title} message={alertData.message} confirmText="Oke Paham!" confirmColor="#3b82f6" onConfirm={() => setAlertData({ ...alertData, isOpen: false })} />
         <Link to="/" style={{ display: 'inline-block', color: '#94a3b8', textDecoration: 'none', marginTop: '10px', fontSize: '14px', fontWeight: 'bold' }}>← Kembali</Link>
         <h2 style={{ textAlign: 'center', marginBottom: '20px', marginTop: '10px' }}>🎨 Tebak Gambar</h2>
+
         <div style={{ background: '#1e293b', padding: '20px', borderRadius: '8px' }}>
           <input className="input-field" placeholder="Nama Kamu" value={playerName} onChange={e => setPlayerName(e.target.value)} />
           <input className="input-field" placeholder="Kode Room Bebas" value={roomCode} onChange={e => setRoomCode(e.target.value)} />
           <button onClick={joinRoom} className="btn-primary btn-action">Masuk Room</button>
+        </div>
+
+        {/* LEADERBOARD BULANAN UI */}
+        <div style={{ background: '#1e293b', padding: '20px', borderRadius: '8px', marginTop: '20px', border: '2px solid #334155' }}>
+          <h3 style={{ margin: '0 0 15px 0', color: '#facc15', textAlign: 'center' }}>🏆 Top 10 Bulan Ini</h3>
+          {leaderboard.length > 0 ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              {leaderboard.map((player, index) => {
+                let rankMedal = `${index + 1}.`;
+                if (index === 0) rankMedal = '🥇';
+                if (index === 1) rankMedal = '🥈';
+                if (index === 2) rankMedal = '🥉';
+
+                return (
+                  <div key={index} style={{ display: 'flex', justifyContent: 'space-between', background: '#0f172a', padding: '10px 15px', borderRadius: '6px', fontSize: '13px', fontWeight: 'bold' }}>
+                    <span>{rankMedal} <span style={{color: '#f8fafc', marginLeft: '5px'}}>{player.name}</span></span>
+                    <span style={{ color: '#22c55e' }}>{player.score} Pts</span>
+                  </div>
+                )
+              })}
+            </div>
+          ) : (
+            <p style={{ color: '#64748b', fontSize: '12px', textAlign: 'center', margin: 0 }}>Belum ada data bulan ini. Jadilah yang pertama!</p>
+          )}
         </div>
       </div>
     );
@@ -547,7 +608,7 @@ export default function Pictionary() {
           </div>
         )}
 
-        {/* OVERLAY: ANIMASI MULAI 3...2...1 (MUNCUL UNTUK SEMUA) */}
+        {/* OVERLAY: ANIMASI MULAI 3...2...1 */}
         {roomData?.gameState?.status === "starting" && countdown && (
           <div className="overlay-anim" style={{zIndex: 25, flexDirection: 'column'}}>
             <div style={{fontSize: '4rem', textShadow: '2px 2px 10px rgba(0,0,0,0.8)'}}>{countdown}</div>
@@ -630,7 +691,7 @@ export default function Pictionary() {
         )}
       </div>
 
-      {/* LEADERBOARD */}
+      {/* LEADERBOARD LOKAL (ROOM) */}
       <div className="player-list">
         {playersList.map((name) => (
           <div key={name} className="player-item">
