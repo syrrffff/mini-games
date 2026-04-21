@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { db } from '../firebase';
 import { Link } from 'react-router-dom';
 import { ref, update, onValue, get, remove, push, onDisconnect } from 'firebase/database';
+import ConfirmModal from '../components/ConfirmModal'; // <-- IMPORT MODAL
 
 // --- DATABASE TEBAK GAMBAR (100+ KATA SUPER ABSURD & RANDOM) ---
 const WORD_LIST = [
@@ -41,8 +42,9 @@ const BGM_MELODIES = [
   [220.00, 261.63, 329.63, 440.00, 392.00, 329.63, 261.63, 293.66]  // Mikir
 ];
 
-// --- GENERATOR SUARA EFFECT ---
-const playSound = (type) => {
+// --- GENERATOR SUARA EFFECT (DENGAN KONTROL VOLUME) ---
+const playSound = (type, volMultiplier = 1) => {
+  if (volMultiplier <= 0) return;
   try {
     const AudioContext = window.AudioContext || window.webkitAudioContext;
     if (!AudioContext) return;
@@ -56,32 +58,32 @@ const playSound = (type) => {
 
     if (type === 'beep') {
       osc.type = 'sine'; osc.frequency.setValueAtTime(800, now);
-      gain.gain.setValueAtTime(0.1, now); osc.start(now); osc.stop(now + 0.1);
+      gain.gain.setValueAtTime(0.2 * volMultiplier, now); osc.start(now); osc.stop(now + 0.1);
     } else if (type === 'start') {
       osc.type = 'sine'; osc.frequency.setValueAtTime(1200, now);
-      gain.gain.setValueAtTime(0.2, now); osc.start(now); osc.stop(now + 0.3);
+      gain.gain.setValueAtTime(0.4 * volMultiplier, now); osc.start(now); osc.stop(now + 0.3);
     } else if (type === 'correct') {
       osc.type = 'sine'; osc.frequency.setValueAtTime(800, now);
       osc.frequency.exponentialRampToValueAtTime(1600, now + 0.1);
-      gain.gain.setValueAtTime(0.1, now); gain.gain.linearRampToValueAtTime(0, now + 0.3);
+      gain.gain.setValueAtTime(0.3 * volMultiplier, now); gain.gain.linearRampToValueAtTime(0, now + 0.3);
       osc.start(now); osc.stop(now + 0.3);
     } else if (type === 'wrong') {
       osc.type = 'sawtooth'; osc.frequency.setValueAtTime(200, now);
       osc.frequency.linearRampToValueAtTime(100, now + 0.3);
-      gain.gain.setValueAtTime(0.1, now); gain.gain.linearRampToValueAtTime(0, now + 0.3);
+      gain.gain.setValueAtTime(0.3 * volMultiplier, now); gain.gain.linearRampToValueAtTime(0, now + 0.3);
       osc.start(now); osc.stop(now + 0.3);
     } else if (type === 'gameover') {
       osc.type = 'triangle'; osc.frequency.setValueAtTime(400, now);
       osc.frequency.setValueAtTime(523.25, now + 0.1); osc.frequency.setValueAtTime(659.25, now + 0.2);
-      gain.gain.setValueAtTime(0.1, now); gain.gain.linearRampToValueAtTime(0, now + 0.8);
+      gain.gain.setValueAtTime(0.3 * volMultiplier, now); gain.gain.linearRampToValueAtTime(0, now + 0.8);
       osc.start(now); osc.stop(now + 0.8);
     }
   } catch(e) { console.error("Audio error", e); }
 };
 
-// --- FUNGSI GENERATOR NADA BGM ---
-const playBGMNote = (ctx, freq) => {
-  if (!freq) return;
+// --- FUNGSI GENERATOR NADA BGM (DENGAN KONTROL VOLUME) ---
+const playBGMNote = (ctx, freq, volMultiplier = 1) => {
+  if (!freq || volMultiplier <= 0) return;
   try {
     const osc = ctx.createOscillator();
     const gain = ctx.createGain();
@@ -93,7 +95,9 @@ const playBGMNote = (ctx, freq) => {
 
     const now = ctx.currentTime;
     gain.gain.setValueAtTime(0, now);
-    gain.gain.linearRampToValueAtTime(0.015, now + 0.05);
+
+    // Base volume dinaikkan jadi 0.08 (awalnya 0.015) agar kedengaran di HP
+    gain.gain.linearRampToValueAtTime(0.08 * volMultiplier, now + 0.05);
     gain.gain.exponentialRampToValueAtTime(0.001, now + 0.3);
 
     osc.start(now);
@@ -101,7 +105,6 @@ const playBGMNote = (ctx, freq) => {
   } catch(e) { console.error("BGM Audio error", e); }
 };
 
-// --- FUNGSI HELPER AMBIL 3 KATA ACAK ---
 const getRandomWords = (count = 3) => {
   const shuffled = [...WORD_LIST].sort(() => 0.5 - Math.random());
   return shuffled.slice(0, count);
@@ -120,13 +123,30 @@ export default function Pictionary() {
   const [activeColor, setActiveColor] = useState('#000000');
 
   const [showTooltip, setShowTooltip] = useState(false);
-  const [isMuted, setIsMuted] = useState(false);
+
+  // STATE MODAL ALERT (PENGGANTI ALERT BAWAAN)
+  const [alertData, setAlertData] = useState({ isOpen: false, title: '', message: '' });
+  const showAlert = (title, message) => setAlertData({ isOpen: true, title, message });
+
+  // --- STATE VOLUME BGM & EFFECT ---
+  const [volume, setVolume] = useState(() => {
+    const saved = localStorage.getItem('pict_volume');
+    return saved !== null ? parseFloat(saved) : 0.8; // Default 80%
+  });
+  const volumeRef = useRef(volume); // Ref untuk dibaca oleh setInterval BGM
 
   const canvasRef = useRef(null);
   const isDrawingRef = useRef(false);
   const colorRef = useRef('#000000');
   const chatContainerRef = useRef(null);
   const bgmRef = useRef({ interval: null, ctx: null, step: 0, melodyIndex: 0 });
+
+  const handleVolumeChange = (e) => {
+    const val = parseFloat(e.target.value);
+    setVolume(val);
+    volumeRef.current = val;
+    localStorage.setItem('pict_volume', val);
+  };
 
   useEffect(() => {
     const savedRoom = localStorage.getItem('roomCode');
@@ -161,10 +181,10 @@ export default function Pictionary() {
   };
 
   const joinRoom = () => {
-    if (!roomCode || !playerName) return alert("Isi nama dan kode room!");
+    if (!roomCode || !playerName) return showAlert("⚠️ Oops!", "Jangan lupa isi Nama dan Kode Room kamu dulu bro!");
     localStorage.setItem('roomCode', roomCode); localStorage.setItem('playerName', playerName);
     connectToRoom(roomCode, playerName);
-    playSound('beep');
+    playSound('beep', volumeRef.current);
   };
 
   const exitRoom = async () => {
@@ -175,23 +195,34 @@ export default function Pictionary() {
     localStorage.clear(); setIsJoined(false); setRoomData(null);
   };
 
-  // --- SISTEM BACKGROUND MUSIC (BGM) ---
+  // --- SISTEM BACKGROUND MUSIC (BGM) MEMAKAI VOLUME REF ---
   useEffect(() => {
-    if (isJoined && !isMuted) {
+    if (isJoined && volumeRef.current > 0) {
       const AudioContext = window.AudioContext || window.webkitAudioContext;
       if (!bgmRef.current.ctx) bgmRef.current.ctx = new AudioContext();
       const ctx = bgmRef.current.ctx;
       if (ctx.state === 'suspended') ctx.resume();
-      bgmRef.current.melodyIndex = Math.floor(Math.random() * BGM_MELODIES.length);
-      bgmRef.current.interval = setInterval(() => {
-        const seq = BGM_MELODIES[bgmRef.current.melodyIndex];
-        const freq = seq[bgmRef.current.step % seq.length];
-        playBGMNote(ctx, freq);
-        bgmRef.current.step++;
-      }, 300);
-    } else { clearInterval(bgmRef.current.interval); }
-    return () => clearInterval(bgmRef.current.interval);
-  }, [isJoined, isMuted]);
+
+      if (!bgmRef.current.interval) {
+        bgmRef.current.melodyIndex = Math.floor(Math.random() * BGM_MELODIES.length);
+        bgmRef.current.interval = setInterval(() => {
+          const seq = BGM_MELODIES[bgmRef.current.melodyIndex];
+          const freq = seq[bgmRef.current.step % seq.length];
+          // Mainkan dengan volume slider saat ini
+          playBGMNote(ctx, freq, volumeRef.current);
+          bgmRef.current.step++;
+        }, 300);
+      }
+    } else {
+      clearInterval(bgmRef.current.interval);
+      bgmRef.current.interval = null;
+    }
+
+    return () => {
+      clearInterval(bgmRef.current.interval);
+      bgmRef.current.interval = null;
+    };
+  }, [isJoined, volume]); // Update dipicu oleh perubahan volume atau saat join
 
   const toggleReady = () => update(ref(db, `rooms/${roomCode}/players/${playerName}`), { isReady: !(roomData?.players[playerName]?.isReady) });
 
@@ -209,10 +240,10 @@ export default function Pictionary() {
   const startGameSequence = () => {
     const activePlayers = Object.keys(roomData.players);
     update(ref(db, `rooms/${roomCode}/gameState`), {
-      status: "choosing_word", // UBAH STATUS AWAL MENJADI MEMILIH KATA
+      status: "choosing_word",
       currentDrawerIndex: 0,
       turnOrder: activePlayers,
-      wordChoices: getRandomWords(3), // GENERATE 3 KATA ACAK
+      wordChoices: getRandomWords(3),
       currentWord: "",
       canvasData: "",
       correctGuessers: []
@@ -232,9 +263,9 @@ export default function Pictionary() {
       update(ref(db, `rooms/${roomCode}/gameState`), { status: "gameOver" });
     } else {
       update(ref(db, `rooms/${roomCode}/gameState`), {
-        status: "choosing_word", // SET STATUS MEMILIH KATA
+        status: "choosing_word",
         currentDrawerIndex: nextIndex,
-        wordChoices: getRandomWords(3), // GENERATE 3 KATA ACAK BARU
+        wordChoices: getRandomWords(3),
         currentWord: "",
         canvasData: "",
         correctGuessers: []
@@ -242,22 +273,21 @@ export default function Pictionary() {
     }
   };
 
-  // --- FUNGSI MEMILIH KATA (KHUSUS PENGGAMBAR) ---
   const handleWordSelect = (selectedWord) => {
     update(ref(db, `rooms/${roomCode}/gameState`), {
-      status: "starting", // Lanjut ke animasi 3..2..1
+      status: "starting",
       currentWord: selectedWord,
-      wordChoices: null // Hapus pilihan agar bersih
+      wordChoices: null
     });
   };
 
   useEffect(() => {
     if (roomData?.gameState?.status === 'starting') {
-      let count = 3; setCountdown(count); playSound('beep');
+      let count = 3; setCountdown(count); playSound('beep', volumeRef.current);
       const interval = setInterval(() => {
         count--;
-        if (count > 0) { setCountdown(count); playSound('beep'); }
-        else if (count === 0) { setCountdown("MULAI!"); playSound('start'); }
+        if (count > 0) { setCountdown(count); playSound('beep', volumeRef.current); }
+        else if (count === 0) { setCountdown("MULAI!"); playSound('start', volumeRef.current); }
         else {
           clearInterval(interval); setCountdown(null);
           if (isMyTurn) update(ref(db, `rooms/${roomCode}/gameState`), { status: 'playing', turnEndTime: Date.now() + 90000 });
@@ -298,7 +328,7 @@ export default function Pictionary() {
 
   useEffect(() => {
     if (roomData?.gameState?.status === 'roundEnd') {
-      roomData.gameState.endReason === 'timeup' ? playSound('wrong') : playSound('correct');
+      roomData.gameState.endReason === 'timeup' ? playSound('wrong', volumeRef.current) : playSound('correct', volumeRef.current);
       const timer = setTimeout(() => { if (isMyTurn) nextTurn(); }, 4000);
       return () => clearTimeout(timer);
     }
@@ -306,7 +336,7 @@ export default function Pictionary() {
 
   useEffect(() => {
     if (roomData?.gameState?.status === 'gameOver') {
-      playSound('gameover');
+      playSound('gameover', volumeRef.current);
       const timer = setTimeout(() => {
         if (isMyTurn) {
           update(ref(db, `rooms/${roomCode}/gameState`), { status: "waiting" });
@@ -359,7 +389,7 @@ export default function Pictionary() {
       const currentWord = roomData?.gameState?.currentWord;
       if (guessInput.toLowerCase() === currentWord.toLowerCase()) {
         if (hasGuessed) return setGuessInput('');
-        playSound('correct');
+        playSound('correct', volumeRef.current);
 
         const points = Math.max(2, 10 - (correctGuessers.length * 2));
         const newCorrectGuessers = [...correctGuessers, playerName];
@@ -383,9 +413,19 @@ export default function Pictionary() {
     return Object.entries(roomData.players).map(([name, data]) => ({ name, score: data.score || 0 })).sort((a, b) => b.score - a.score).slice(0, 3);
   };
 
+  // --- RENDER SCREEN BELUM MASUK ROOM ---
   if (!isJoined) {
     return (
       <div>
+        <ConfirmModal
+          isOpen={alertData.isOpen}
+          title={alertData.title}
+          message={alertData.message}
+          confirmText="Oke Paham!"
+          confirmColor="#3b82f6"
+          onConfirm={() => setAlertData({ ...alertData, isOpen: false })}
+        />
+
         <Link to="/" style={{ display: 'inline-block', color: '#94a3b8', textDecoration: 'none', marginTop: '10px', fontSize: '14px', fontWeight: 'bold' }}>
           ← Kembali
         </Link>
@@ -409,10 +449,22 @@ export default function Pictionary() {
         <div style={{ flex: 1 }}>
           <h3 style={{ margin: 0, fontSize: '16px' }}>Room: <span style={{ color: '#3b82f6' }}>{roomCode}</span></h3>
         </div>
-        <div style={{ flex: 1, display: 'flex', justifyContent: 'center', gap: '15px', position: 'relative' }}>
-          <button onClick={() => setIsMuted(!isMuted)} style={{ background: 'none', border: 'none', fontSize: '20px', cursor: 'pointer', padding: 0 }} title={isMuted ? "Hidupkan Musik" : "Matikan Musik"}>
-            {isMuted ? '🔇' : '🎵'}
-          </button>
+
+        {/* TENGAH: Slider BGM & Bug Icon */}
+        <div style={{ flex: 1, display: 'flex', justifyContent: 'center', gap: '10px', position: 'relative' }}>
+
+          {/* SLIDER VOLUME MUSIK BARU */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '5px', background: 'rgba(0,0,0,0.3)', padding: '4px 8px', borderRadius: '15px' }}>
+            <span style={{fontSize: '14px'}}>{volume === 0 ? '🔇' : '🎵'}</span>
+            <input
+              type="range"
+              min="0" max="1" step="0.1"
+              value={volume}
+              onChange={handleVolumeChange}
+              style={{ width: '50px', accentColor: '#3b82f6' }}
+            />
+          </div>
+
           <button onClick={() => setShowTooltip(!showTooltip)} style={{ background: 'none', border: 'none', fontSize: '20px', cursor: 'pointer', padding: 0 }}>🐛</button>
           {showTooltip && (
             <div style={{ position: 'absolute', top: '35px', left: '50%', transform: 'translateX(-50%)', background: '#334155', color: '#f8fafc', padding: '8px 12px', borderRadius: '6px', fontSize: '11px', width: '180px', textAlign: 'center', zIndex: 100, boxShadow: '0 4px 10px rgba(0,0,0,0.5)', border: '1px solid #475569' }}>
