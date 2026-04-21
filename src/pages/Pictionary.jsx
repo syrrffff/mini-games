@@ -5,41 +5,43 @@ import { ref, update, onValue, get, remove, push, onDisconnect } from 'firebase/
 
 // --- DATABASE TEBAK GAMBAR (100+ KATA SUPER ABSURD & RANDOM) ---
 const WORD_LIST = [
-  // Level Pemanasan (Benda Sehari-hari tapi spesifik)
+  // Level Pemanasan
   "Kucing", "Sepeda", "Rumah", "Pohon", "Mobil", "Gunung", "Gitar", "Laptop", "Pesawat", "Buku",
   "Kacamata", "Sepatu", "Jam Tangan", "Kopi", "Kipas Angin", "Dispenser", "Kulkas", "Mesin Cuci",
   "Rice Cooker", "Setrika", "Jemuran", "Sapu Lidi", "Pengki", "Ember", "Gayung", "Sikat Gigi",
   "Sampo Sachet", "Gunting Kuku", "Cotton Bud", "Karet Gelang", "Peniti", "Televisi Tabung",
   "Kalkulator", "Gembok", "Obeng", "Palu", "Gergaji", "Kawat Gigi", "Gigi Palsu", "Rambut Palsu",
-
-  // Level Tongkrongan & Jalanan (Bikin mikir keras cara gambarnya)
+  // Level Tongkrongan & Jalanan
   "Polisi Tidur", "Lampu Merah", "Tiang Listrik", "Angkot", "Becak", "Gerobak Bakso", "Pintu Tol",
   "Zebra Cross", "Tukang Parkir", "Helm Bogo", "Knalpot Racing", "Spion", "Tilang Polisi", "CCTV",
   "Jas Hujan Kelelawar", "Warnet", "Warkop", "Sinyal Lemah", "Centang Biru", "Colokan Listrik",
   "Powerbank", "Headset Kusut",
-
-  // Level Makanan (Bikin laper)
+  // Level Makanan
   "Es Teh Plastik", "Nasi Bungkus Karet Dua", "Seblak Ceker", "Martabak Telur", "Tahu Bulat",
   "Gorengan", "Kerupuk Putih", "Sate Ayam", "Es Campur", "Pete", "Jengkol", "Durian",
   "Kopi Hitam", "Mendoan", "Mie Ayam", "Bakso Beranak",
-
-  // Level Hewan & Alam (Absurd)
+  // Level Hewan & Alam
   "Kecoak Terbang", "Nyamuk Kawin", "Lalat", "Cicak Putus Ekor", "Tokek", "Ulat Bulu", "Kelabang",
   "Buaya Darat", "Gurita", "Kaktus", "Bunga Bangkai", "Pohon Beringin", "Awan Mendung", "Petir",
   "Pelangi", "Bulu Babi", "Lintah", "Tikus Got", "Burung Hantu", "Kucing Oyen",
-
-  // Level KENA MENTAL / Abstrak / Situasi Lucu (DIJAMIN NGAKAK LIHAT GAMBARNYA)
+  // Level Abstrak / Situasi Lucu
   "Dompet Kosong", "Sakit Gigi", "Kesemutan", "Kentut", "Masuk Angin", "Tanggal Tua", "Cicilan",
   "Bau Badan", "Kutu Rambut", "Panu", "Ketombe", "Kurang Tidur", "Ngantuk Berat", "Patah Hati",
   "Mimpi Buruk", "Kebelet Boker", "Lupa Password", "Mabuk Laut", "Kesandung Batu", "Gaji Numpang Lewat",
-
-  // Level Mistis / Fantasi (Visualnya unik)
+  // Level Mistis / Fantasi
   "Pocong", "Tuyul", "Kuntilanak", "Alien", "UFO", "Ninja", "Zombie", "Bajak Laut", "Putri Duyung", "Malaikat"
 ];
 
 const PALETTE = ['#000000', '#ef4444', '#3b82f6', '#22c55e', '#facc15'];
 
-// --- GENERATOR SUARA (Tanpa File MP3 Eksternal) ---
+// --- DATABASE MELODI BACKGROUND MUSIC ---
+const BGM_MELODIES = [
+  [261.63, 329.63, 392.00, 440.00, 392.00, 329.63, 293.66, 329.63], // Upbeat
+  [261.63, null, 392.00, null, 329.63, null, 392.00, null],         // Chill
+  [220.00, 261.63, 329.63, 440.00, 392.00, 329.63, 261.63, 293.66]  // Mikir
+];
+
+// --- GENERATOR SUARA EFFECT ---
 const playSound = (type) => {
   try {
     const AudioContext = window.AudioContext || window.webkitAudioContext;
@@ -49,35 +51,60 @@ const playSound = (type) => {
 
     const osc = ctx.createOscillator();
     const gain = ctx.createGain();
-    osc.connect(gain);
-    gain.connect(ctx.destination);
+    osc.connect(gain); gain.connect(ctx.destination);
     const now = ctx.currentTime;
 
-    if (type === 'beep') { // Hitungan 3..2..1
+    if (type === 'beep') {
       osc.type = 'sine'; osc.frequency.setValueAtTime(800, now);
-      gain.gain.setValueAtTime(0.1, now);
-      osc.start(now); osc.stop(now + 0.1);
-    } else if (type === 'start') { // Mulai!
+      gain.gain.setValueAtTime(0.1, now); osc.start(now); osc.stop(now + 0.1);
+    } else if (type === 'start') {
       osc.type = 'sine'; osc.frequency.setValueAtTime(1200, now);
-      gain.gain.setValueAtTime(0.2, now);
-      osc.start(now); osc.stop(now + 0.3);
-    } else if (type === 'correct') { // Tebakan Benar
+      gain.gain.setValueAtTime(0.2, now); osc.start(now); osc.stop(now + 0.3);
+    } else if (type === 'correct') {
       osc.type = 'sine'; osc.frequency.setValueAtTime(800, now);
       osc.frequency.exponentialRampToValueAtTime(1600, now + 0.1);
       gain.gain.setValueAtTime(0.1, now); gain.gain.linearRampToValueAtTime(0, now + 0.3);
       osc.start(now); osc.stop(now + 0.3);
-    } else if (type === 'wrong') { // Waktu Habis / Gagal
+    } else if (type === 'wrong') {
       osc.type = 'sawtooth'; osc.frequency.setValueAtTime(200, now);
       osc.frequency.linearRampToValueAtTime(100, now + 0.3);
       gain.gain.setValueAtTime(0.1, now); gain.gain.linearRampToValueAtTime(0, now + 0.3);
       osc.start(now); osc.stop(now + 0.3);
-    } else if (type === 'gameover') { // Podium Juara
+    } else if (type === 'gameover') {
       osc.type = 'triangle'; osc.frequency.setValueAtTime(400, now);
       osc.frequency.setValueAtTime(523.25, now + 0.1); osc.frequency.setValueAtTime(659.25, now + 0.2);
       gain.gain.setValueAtTime(0.1, now); gain.gain.linearRampToValueAtTime(0, now + 0.8);
       osc.start(now); osc.stop(now + 0.8);
     }
   } catch(e) { console.error("Audio error", e); }
+};
+
+// --- FUNGSI GENERATOR NADA BGM ---
+const playBGMNote = (ctx, freq) => {
+  if (!freq) return;
+  try {
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+
+    osc.type = 'triangle';
+    osc.frequency.value = freq;
+
+    const now = ctx.currentTime;
+    gain.gain.setValueAtTime(0, now);
+    gain.gain.linearRampToValueAtTime(0.015, now + 0.05);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.3);
+
+    osc.start(now);
+    osc.stop(now + 0.35);
+  } catch(e) { console.error("BGM Audio error", e); }
+};
+
+// --- FUNGSI HELPER AMBIL 3 KATA ACAK ---
+const getRandomWords = (count = 3) => {
+  const shuffled = [...WORD_LIST].sort(() => 0.5 - Math.random());
+  return shuffled.slice(0, count);
 };
 
 export default function Pictionary() {
@@ -89,16 +116,17 @@ export default function Pictionary() {
   const [guessInput, setGuessInput] = useState('');
   const [countdown, setCountdown] = useState(null);
   const [roleAnim, setRoleAnim] = useState(false);
-  const [timeLeft, setTimeLeft] = useState(120);
+  const [timeLeft, setTimeLeft] = useState(90);
   const [activeColor, setActiveColor] = useState('#000000');
 
-  // FIX: Tambahkan state untuk showTooltip di sini!
   const [showTooltip, setShowTooltip] = useState(false);
+  const [isMuted, setIsMuted] = useState(false);
 
   const canvasRef = useRef(null);
   const isDrawingRef = useRef(false);
   const colorRef = useRef('#000000');
   const chatContainerRef = useRef(null);
+  const bgmRef = useRef({ interval: null, ctx: null, step: 0, melodyIndex: 0 });
 
   useEffect(() => {
     const savedRoom = localStorage.getItem('roomCode');
@@ -136,7 +164,7 @@ export default function Pictionary() {
     if (!roomCode || !playerName) return alert("Isi nama dan kode room!");
     localStorage.setItem('roomCode', roomCode); localStorage.setItem('playerName', playerName);
     connectToRoom(roomCode, playerName);
-    playSound('beep'); // Aktivasi audio context di browser
+    playSound('beep');
   };
 
   const exitRoom = async () => {
@@ -147,7 +175,24 @@ export default function Pictionary() {
     localStorage.clear(); setIsJoined(false); setRoomData(null);
   };
 
-  // --- LOGIKA GILIRAN & STATUS ---
+  // --- SISTEM BACKGROUND MUSIC (BGM) ---
+  useEffect(() => {
+    if (isJoined && !isMuted) {
+      const AudioContext = window.AudioContext || window.webkitAudioContext;
+      if (!bgmRef.current.ctx) bgmRef.current.ctx = new AudioContext();
+      const ctx = bgmRef.current.ctx;
+      if (ctx.state === 'suspended') ctx.resume();
+      bgmRef.current.melodyIndex = Math.floor(Math.random() * BGM_MELODIES.length);
+      bgmRef.current.interval = setInterval(() => {
+        const seq = BGM_MELODIES[bgmRef.current.melodyIndex];
+        const freq = seq[bgmRef.current.step % seq.length];
+        playBGMNote(ctx, freq);
+        bgmRef.current.step++;
+      }, 300);
+    } else { clearInterval(bgmRef.current.interval); }
+    return () => clearInterval(bgmRef.current.interval);
+  }, [isJoined, isMuted]);
+
   const toggleReady = () => update(ref(db, `rooms/${roomCode}/players/${playerName}`), { isReady: !(roomData?.players[playerName]?.isReady) });
 
   const playersList = roomData?.players ? Object.keys(roomData.players) : [];
@@ -159,13 +204,18 @@ export default function Pictionary() {
   const isPlaying = roomData?.gameState?.status === "playing";
   const correctGuessers = roomData?.gameState?.correctGuessers || [];
   const hasGuessed = correctGuessers.includes(playerName);
-  const isSpectator = (roomData?.gameState?.status === "playing" || roomData?.gameState?.status === "starting") && !turnOrder.includes(playerName);
+  const isSpectator = (roomData?.gameState?.status === "playing" || roomData?.gameState?.status === "starting" || roomData?.gameState?.status === "choosing_word") && !turnOrder.includes(playerName);
 
   const startGameSequence = () => {
     const activePlayers = Object.keys(roomData.players);
     update(ref(db, `rooms/${roomCode}/gameState`), {
-      status: "starting", currentDrawerIndex: 0, turnOrder: activePlayers,
-      currentWord: WORD_LIST[Math.floor(Math.random() * WORD_LIST.length)], canvasData: "", correctGuessers: []
+      status: "choosing_word", // UBAH STATUS AWAL MENJADI MEMILIH KATA
+      currentDrawerIndex: 0,
+      turnOrder: activePlayers,
+      wordChoices: getRandomWords(3), // GENERATE 3 KATA ACAK
+      currentWord: "",
+      canvasData: "",
+      correctGuessers: []
     });
     activePlayers.forEach(p => update(ref(db, `rooms/${roomCode}/players/${p}`), { isReady: false }));
   };
@@ -182,13 +232,25 @@ export default function Pictionary() {
       update(ref(db, `rooms/${roomCode}/gameState`), { status: "gameOver" });
     } else {
       update(ref(db, `rooms/${roomCode}/gameState`), {
-        status: "starting", currentDrawerIndex: nextIndex,
-        currentWord: WORD_LIST[Math.floor(Math.random() * WORD_LIST.length)], canvasData: "", correctGuessers: []
+        status: "choosing_word", // SET STATUS MEMILIH KATA
+        currentDrawerIndex: nextIndex,
+        wordChoices: getRandomWords(3), // GENERATE 3 KATA ACAK BARU
+        currentWord: "",
+        canvasData: "",
+        correctGuessers: []
       });
     }
   };
 
-  // Animasi 3..2..1 Mulai
+  // --- FUNGSI MEMILIH KATA (KHUSUS PENGGAMBAR) ---
+  const handleWordSelect = (selectedWord) => {
+    update(ref(db, `rooms/${roomCode}/gameState`), {
+      status: "starting", // Lanjut ke animasi 3..2..1
+      currentWord: selectedWord,
+      wordChoices: null // Hapus pilihan agar bersih
+    });
+  };
+
   useEffect(() => {
     if (roomData?.gameState?.status === 'starting') {
       let count = 3; setCountdown(count); playSound('beep');
@@ -198,14 +260,13 @@ export default function Pictionary() {
         else if (count === 0) { setCountdown("MULAI!"); playSound('start'); }
         else {
           clearInterval(interval); setCountdown(null);
-          if (isMyTurn) update(ref(db, `rooms/${roomCode}/gameState`), { status: 'playing', turnEndTime: Date.now() + 120000 });
+          if (isMyTurn) update(ref(db, `rooms/${roomCode}/gameState`), { status: 'playing', turnEndTime: Date.now() + 90000 });
         }
       }, 1000);
       return () => clearInterval(interval);
     }
   }, [roomData?.gameState?.status, isMyTurn, roomCode]);
 
-  // FIX BUG ANIMASI NYANGKUT: Dibersihkan dengan presisi
   useEffect(() => {
     if (roomData?.gameState?.status === 'playing') {
       setRoleAnim(true);
@@ -216,7 +277,6 @@ export default function Pictionary() {
     }
   }, [roomData?.gameState?.status]);
 
-  // Timer & Auto-End Putaran
   useEffect(() => {
     if (roomData?.gameState?.status === 'playing') {
       const interval = setInterval(() => {
@@ -225,17 +285,17 @@ export default function Pictionary() {
           clearInterval(interval);
           if (isMyTurn) {
              const currentScore = roomData.players[playerName].score || 0;
-             // Penggambar dapat +10 jika TIDAK ADA yang berhasil tebak sama sekali
              if (correctGuessers.length === 0) update(ref(db, `rooms/${roomCode}/players/${playerName}`), { score: currentScore + 10 });
              update(ref(db, `rooms/${roomCode}/gameState`), { status: 'roundEnd', endReason: 'timeup' });
           }
         } else { setTimeLeft(remaining); }
       }, 1000);
       return () => clearInterval(interval);
+    } else if (roomData?.gameState?.status === 'starting' || roomData?.gameState?.status === 'waiting' || roomData?.gameState?.status === 'choosing_word') {
+        setTimeLeft(90);
     }
   }, [roomData?.gameState?.status, roomData?.gameState?.turnEndTime, isMyTurn, correctGuessers.length]);
 
-  // Animasi & Suara Akhir Ronde
   useEffect(() => {
     if (roomData?.gameState?.status === 'roundEnd') {
       roomData.gameState.endReason === 'timeup' ? playSound('wrong') : playSound('correct');
@@ -244,7 +304,6 @@ export default function Pictionary() {
     }
   }, [roomData?.gameState?.status]);
 
-  // Animasi & Suara Game Over (Podium)
   useEffect(() => {
     if (roomData?.gameState?.status === 'gameOver') {
       playSound('gameover');
@@ -261,7 +320,6 @@ export default function Pictionary() {
   const chatMsgCount = roomData?.chat ? Object.keys(roomData.chat).length : 0;
   useEffect(() => { if (chatContainerRef.current) chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight; }, [chatMsgCount]);
 
-  // --- MENGGAMBAR ---
   const getCoordinates = (e) => {
     const rect = canvasRef.current.getBoundingClientRect();
     const scaleX = canvasRef.current.width / rect.width;
@@ -291,7 +349,6 @@ export default function Pictionary() {
     update(ref(db, `rooms/${roomCode}/gameState`), { canvasData: canvasRef.current.toDataURL() });
   };
 
-  // --- CEK TEBAKAN & SKOR DINAMIS ---
   const submitGuess = (e) => {
     e.preventDefault();
     if (!guessInput.trim()) return;
@@ -301,10 +358,9 @@ export default function Pictionary() {
     } else {
       const currentWord = roomData?.gameState?.currentWord;
       if (guessInput.toLowerCase() === currentWord.toLowerCase()) {
-        if (hasGuessed) return setGuessInput(''); // Jangan hitung jika sudah benar
+        if (hasGuessed) return setGuessInput('');
         playSound('correct');
 
-        // Poin Dinamis: Yg pertama nebak dapet besar (Max 10), selanjutnya turun (-2), Minimal 2.
         const points = Math.max(2, 10 - (correctGuessers.length * 2));
         const newCorrectGuessers = [...correctGuessers, playerName];
 
@@ -312,7 +368,6 @@ export default function Pictionary() {
         update(ref(db, `rooms/${roomCode}/gameState`), { correctGuessers: newCorrectGuessers });
         push(ref(db, `rooms/${roomCode}/chat`), { sender: "Sistem", text: `${playerName} MENEBAK BENAR! (+${points} Pts)`, isCorrect: true });
 
-        // Jika SEMUA penonton/penebak sudah berhasil menebak, akhiri ronde otomatis
         if (newCorrectGuessers.length >= (turnOrder.length - 1)) {
           update(ref(db, `rooms/${roomCode}/gameState`), { status: 'roundEnd', endReason: 'all_guessed' });
         }
@@ -323,7 +378,6 @@ export default function Pictionary() {
     setGuessInput('');
   };
 
-  // Fungsi kalkulasi juara untuk Podium
   const getTopPlayers = () => {
     if (!roomData?.players) return [];
     return Object.entries(roomData.players).map(([name, data]) => ({ name, score: data.score || 0 })).sort((a, b) => b.score - a.score).slice(0, 3);
@@ -332,16 +386,10 @@ export default function Pictionary() {
   if (!isJoined) {
     return (
       <div>
-        {/* Tombol Kembali ke Home */}
-        <Link
-          to="/"
-          style={{ display: 'inline-block', color: '#94a3b8', textDecoration: 'none', marginTop: '10px', fontSize: '14px', fontWeight: 'bold' }}
-        >
+        <Link to="/" style={{ display: 'inline-block', color: '#94a3b8', textDecoration: 'none', marginTop: '10px', fontSize: '14px', fontWeight: 'bold' }}>
           ← Kembali
         </Link>
-
         <h2 style={{ textAlign: 'center', marginBottom: '20px', marginTop: '10px' }}>🎨 Tebak Gambar</h2>
-
         <div style={{ background: '#1e293b', padding: '20px', borderRadius: '8px' }}>
           <input className="input-field" placeholder="Nama Kamu" value={playerName} onChange={e => setPlayerName(e.target.value)} />
           <input className="input-field" placeholder="Kode Room Bebas" value={roomCode} onChange={e => setRoomCode(e.target.value)} />
@@ -355,42 +403,29 @@ export default function Pictionary() {
 
   return (
     <div style={{ position: 'relative', display: 'flex', flexDirection: 'column', gap: '10px' , marginTop: '10px'}}>
+
+      {/* HEADER NAVIGASI & INFO */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', position: 'relative' }}>
-        {/* KIRI: Info Room */}
         <div style={{ flex: 1 }}>
           <h3 style={{ margin: 0, fontSize: '16px' }}>Room: <span style={{ color: '#3b82f6' }}>{roomCode}</span></h3>
         </div>
-
-        {/* TENGAH: Icon Bug & Tooltip Pop-up */}
-        <div style={{ flex: 1, display: 'flex', justifyContent: 'center', position: 'relative' }}>
-          <button
-            onClick={() => setShowTooltip(!showTooltip)}
-            style={{ background: 'none', border: 'none', fontSize: '20px', cursor: 'pointer', padding: 0 }}
-          >
-            🐛
+        <div style={{ flex: 1, display: 'flex', justifyContent: 'center', gap: '15px', position: 'relative' }}>
+          <button onClick={() => setIsMuted(!isMuted)} style={{ background: 'none', border: 'none', fontSize: '20px', cursor: 'pointer', padding: 0 }} title={isMuted ? "Hidupkan Musik" : "Matikan Musik"}>
+            {isMuted ? '🔇' : '🎵'}
           </button>
-
-          {/* Kotak Informasi yang muncul saat icon ditekan */}
+          <button onClick={() => setShowTooltip(!showTooltip)} style={{ background: 'none', border: 'none', fontSize: '20px', cursor: 'pointer', padding: 0 }}>🐛</button>
           {showTooltip && (
-            <div style={{
-              position: 'absolute', top: '35px', left: '50%', transform: 'translateX(-50%)',
-              background: '#334155', color: '#f8fafc', padding: '8px 12px', borderRadius: '6px',
-              fontSize: '11px', width: '180px', textAlign: 'center', zIndex: 100,
-              boxShadow: '0 4px 10px rgba(0,0,0,0.5)', border: '1px solid #475569'
-            }}>
+            <div style={{ position: 'absolute', top: '35px', left: '50%', transform: 'translateX(-50%)', background: '#334155', color: '#f8fafc', padding: '8px 12px', borderRadius: '6px', fontSize: '11px', width: '180px', textAlign: 'center', zIndex: 100, boxShadow: '0 4px 10px rgba(0,0,0,0.5)', border: '1px solid #475569' }}>
               Refresh halaman ini jika terjadi bug, layar macet, atau garis putus-putus.
             </div>
           )}
         </div>
-
-        {/* KANAN: Tombol Keluar */}
         <div style={{ flex: 1, display: 'flex', justifyContent: 'flex-end' }}>
-          <button onClick={exitRoom} className="btn-danger" style={{ padding: '6px 12px', fontSize: '12px' }}>
-            Keluar
-          </button>
+          <button onClick={exitRoom} className="btn-danger" style={{ padding: '6px 12px', fontSize: '12px' }}>Keluar</button>
         </div>
       </div>
 
+      {/* TOP BAR STATUS (READY / TIMER) */}
       {roomData?.gameState?.status === "waiting" || !roomData?.gameState?.status ? (
         <div style={{ textAlign: 'center', background: '#334155', padding: '10px', borderRadius: '6px' }}>
           <p style={{ margin: '0 0 10px 0', fontSize: '12px', color: '#94a3b8' }}>Menunggu semua pemain klik Ready...</p>
@@ -400,7 +435,12 @@ export default function Pictionary() {
         </div>
       ) : (
         <div style={{ display: 'flex', justifyContent: 'space-between', background: '#334155', padding: '8px 10px', borderRadius: '6px', fontWeight: 'bold', fontSize: '12px' }}>
-          <span>{isMyTurn ? `Gambarkan: ${roomData.gameState.currentWord}` : `${currentDrawerName || 'Seseorang'} menggambar...`}</span>
+          <span>
+            {roomData?.gameState?.status === "choosing_word"
+              ? `${currentDrawerName} sedang memilih kata...`
+              : (isMyTurn ? `Gambarkan: ${roomData.gameState.currentWord}` : `${currentDrawerName || 'Seseorang'} menggambar...`)
+            }
+          </span>
           <span style={{ color: timeLeft <= 10 ? '#ef4444' : '#facc15' }}>⏳ {Math.floor(timeLeft / 60)}:{(timeLeft % 60).toString().padStart(2, '0')}</span>
         </div>
       )}
@@ -413,12 +453,41 @@ export default function Pictionary() {
 
       {/* AREA CANVAS & ANIMASI OVERLAY */}
       <div className="canvas-container" style={{ position: 'relative', margin: '0' }}>
-        {countdown && <div className="overlay-anim">{countdown}</div>}
-        {roleAnim && !isSpectator && <div className="overlay-anim" style={{ fontSize: '1.2rem' }}>{isMyTurn ? "🖌️ Giliranmu!" : "🤔 Siap Tebak!"}</div>}
+
+        {/* OVERLAY: PEMILIHAN KATA (Hanya muncul untuk penggambar) */}
+        {roomData?.gameState?.status === "choosing_word" && (
+          <div className="overlay-anim" style={{ flexDirection: 'column', background: 'rgba(15,23,42,0.98)', zIndex: 30 }}>
+            {isMyTurn ? (
+              <>
+                <h2 style={{ color: '#facc15', marginBottom: '20px', fontSize: '1.5rem', textAlign: 'center' }}>Pilih Kata Buat Digambar!</h2>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', width: '80%' }}>
+                  {roomData.gameState.wordChoices?.map((word, idx) => (
+                    <button
+                      key={idx}
+                      onClick={() => handleWordSelect(word)}
+                      style={{ padding: '15px', background: '#3b82f6', color: 'white', border: 'none', borderRadius: '8px', fontSize: '18px', fontWeight: 'bold', cursor: 'pointer', boxShadow: '0 4px 0 #1d4ed8' }}
+                      onMouseDown={e => e.currentTarget.style.transform = 'translateY(4px)'}
+                      onMouseUp={e => e.currentTarget.style.transform = 'translateY(0)'}
+                    >
+                      {word}
+                    </button>
+                  ))}
+                </div>
+              </>
+            ) : (
+              <h2 style={{ color: '#94a3b8', fontSize: '1.2rem', textAlign: 'center' }}>
+                Menunggu <span style={{color: '#f8fafc'}}>{currentDrawerName}</span> memilih kata... ⏳
+              </h2>
+            )}
+          </div>
+        )}
+
+        {countdown && <div className="overlay-anim" style={{zIndex: 25}}>{countdown}</div>}
+        {roleAnim && !isSpectator && roomData?.gameState?.status !== "choosing_word" && <div className="overlay-anim" style={{ fontSize: '1.2rem', zIndex: 25 }}>{isMyTurn ? "🖌️ Giliranmu!" : "🤔 Siap Tebak!"}</div>}
 
         {/* OVERLAY AKHIR RONDE */}
         {roomData?.gameState?.status === 'roundEnd' && (
-          <div className="overlay-anim" style={{ flexDirection: 'column', background: 'rgba(15,23,42,0.98)' }}>
+          <div className="overlay-anim" style={{ flexDirection: 'column', background: 'rgba(15,23,42,0.98)', zIndex: 30 }}>
             <h2 style={{ fontSize: '1.5rem', color: roomData.gameState.endReason === 'timeup' ? '#ef4444' : '#22c55e', marginBottom: '10px' }}>
               {roomData.gameState.endReason === 'timeup' ? '⏰ WAKTU HABIS!' : '🎉 SEMUA MENEBAK!'}
             </h2>
@@ -428,11 +497,11 @@ export default function Pictionary() {
 
         {/* OVERLAY GAME OVER (PODIUM) */}
         {roomData?.gameState?.status === 'gameOver' && (
-          <div className="overlay-anim" style={{ flexDirection: 'column', background: 'rgba(15,23,42,0.98)' }}>
+          <div className="overlay-anim" style={{ flexDirection: 'column', background: 'rgba(15,23,42,0.98)', zIndex: 30 }}>
             <h2 style={{ fontSize: '2rem', marginBottom: '20px', color: '#facc15' }}>🏆 PODIUM 🏆</h2>
             {getTopPlayers().map((p, i) => (
                <div key={p.name} style={{ margin: '5px 0', fontWeight: 'bold', fontSize: i===0?'1.5rem':i===1?'1.2rem':'1rem', color: i===0?'#facc15':i===1?'#cbd5e1':'#d97706' }}>
-                  #{i+1} {p.name} <span style={{fontSize:'0.8em'}}>({p.score} Pts)</span>
+                 #{i+1} {p.name} <span style={{fontSize:'0.8em'}}>({p.score} Pts)</span>
                </div>
             ))}
           </div>
@@ -443,7 +512,7 @@ export default function Pictionary() {
 
         <canvas
           ref={canvasRef} width={400} height={300}
-          style={{ width: '100%', display: 'block', touchAction: 'none' }}
+          style={{ width: '100%', display: 'block', touchAction: 'none', filter: roomData?.gameState?.status === "choosing_word" ? 'blur(4px)' : 'none' }}
           onMouseDown={startDrawing} onMouseMove={draw} onMouseUp={stopDrawing} onMouseOut={stopDrawing}
           onTouchStart={startDrawing} onTouchMove={draw} onTouchEnd={stopDrawing}
         />
@@ -459,8 +528,10 @@ export default function Pictionary() {
           )) : <p style={{ color: '#64748b', fontSize: '10px', textAlign: 'center' }}>Obrolan kosong...</p>}
         </div>
 
-        {isSpectator ? (
-          <div style={{ padding: '8px', textAlign: 'center', background: '#334155', color: '#94a3b8', fontSize: '12px' }}>Hanya penonton.</div>
+        {isSpectator || roomData?.gameState?.status === "choosing_word" ? (
+          <div style={{ padding: '8px', textAlign: 'center', background: '#334155', color: '#94a3b8', fontSize: '12px' }}>
+             {roomData?.gameState?.status === "choosing_word" ? "Menunggu penggambar..." : "Hanya penonton."}
+          </div>
         ) : (
           <form onSubmit={submitGuess} className="chat-input-area">
             <input placeholder={(isMyTurn || hasGuessed) ? "Tunggu ronde selesai..." : "Ketik tebakan..."} value={guessInput} onChange={e => setGuessInput(e.target.value)} disabled={isMyTurn || hasGuessed} />
@@ -475,7 +546,7 @@ export default function Pictionary() {
           <div key={name} className="player-item">
             <span>
               {name} {roomData?.gameState?.status === "waiting" && (roomData.players[name].isReady ? " ✅" : " ⏳")}
-              {isPlaying && currentDrawerName === name ? ' 🖌️' : ''}
+              {(isPlaying || roomData?.gameState?.status === "choosing_word" || roomData?.gameState?.status === "starting") && currentDrawerName === name ? ' 🖌️' : ''}
               {correctGuessers.includes(name) ? ' ✔️' : ''}
               {roomData?.gameState?.status !== "waiting" && !turnOrder.includes(name) ? ' 👀' : ''}
             </span>
