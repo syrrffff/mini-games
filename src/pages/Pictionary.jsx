@@ -2,49 +2,40 @@ import { useState, useEffect, useRef } from 'react';
 import { db } from '../firebase';
 import { Link } from 'react-router-dom';
 import { ref, update, onValue, get, remove, push, onDisconnect } from 'firebase/database';
-import ConfirmModal from '../components/ConfirmModal'; // <-- IMPORT MODAL
+import ConfirmModal from '../components/ConfirmModal';
 
 // --- DATABASE TEBAK GAMBAR (100+ KATA SUPER ABSURD & RANDOM) ---
 const WORD_LIST = [
-  // Level Pemanasan
   "Kucing", "Sepeda", "Rumah", "Pohon", "Mobil", "Gunung", "Gitar", "Laptop", "Pesawat", "Buku",
   "Kacamata", "Sepatu", "Jam Tangan", "Kopi", "Kipas Angin", "Dispenser", "Kulkas", "Mesin Cuci",
   "Rice Cooker", "Setrika", "Jemuran", "Sapu Lidi", "Pengki", "Ember", "Gayung", "Sikat Gigi",
   "Sampo Sachet", "Gunting Kuku", "Cotton Bud", "Karet Gelang", "Peniti", "Televisi Tabung",
   "Kalkulator", "Gembok", "Obeng", "Palu", "Gergaji", "Kawat Gigi", "Gigi Palsu", "Rambut Palsu",
-  // Level Tongkrongan & Jalanan
   "Polisi Tidur", "Lampu Merah", "Tiang Listrik", "Angkot", "Becak", "Gerobak Bakso", "Pintu Tol",
   "Zebra Cross", "Tukang Parkir", "Helm Bogo", "Knalpot Racing", "Spion", "Tilang Polisi", "CCTV",
   "Jas Hujan Kelelawar", "Warnet", "Warkop", "Sinyal Lemah", "Centang Biru", "Colokan Listrik",
-  "Powerbank", "Headset Kusut",
-  // Level Makanan
-  "Es Teh Plastik", "Nasi Bungkus Karet Dua", "Seblak Ceker", "Martabak Telur", "Tahu Bulat",
-  "Gorengan", "Kerupuk Putih", "Sate Ayam", "Es Campur", "Pete", "Jengkol", "Durian",
-  "Kopi Hitam", "Mendoan", "Mie Ayam", "Bakso Beranak",
-  // Level Hewan & Alam
-  "Kecoak Terbang", "Nyamuk Kawin", "Lalat", "Cicak Putus Ekor", "Tokek", "Ulat Bulu", "Kelabang",
-  "Buaya Darat", "Gurita", "Kaktus", "Bunga Bangkai", "Pohon Beringin", "Awan Mendung", "Petir",
-  "Pelangi", "Bulu Babi", "Lintah", "Tikus Got", "Burung Hantu", "Kucing Oyen",
-  // Level Abstrak / Situasi Lucu
-  "Dompet Kosong", "Sakit Gigi", "Kesemutan", "Kentut", "Masuk Angin", "Tanggal Tua", "Cicilan",
-  "Bau Badan", "Kutu Rambut", "Panu", "Ketombe", "Kurang Tidur", "Ngantuk Berat", "Patah Hati",
-  "Mimpi Buruk", "Kebelet Boker", "Lupa Password", "Mabuk Laut", "Kesandung Batu", "Gaji Numpang Lewat",
-  // Level Mistis / Fantasi
-  "Pocong", "Tuyul", "Kuntilanak", "Alien", "UFO", "Ninja", "Zombie", "Bajak Laut", "Putri Duyung", "Malaikat"
+  "Powerbank", "Headset Kusut", "Es Teh Plastik", "Nasi Bungkus Karet Dua", "Seblak Ceker",
+  "Martabak Telur", "Tahu Bulat", "Gorengan", "Kerupuk Putih", "Sate Ayam", "Es Campur", "Pete",
+  "Jengkol", "Durian", "Kopi Hitam", "Mendoan", "Mie Ayam", "Bakso Beranak", "Kecoak Terbang",
+  "Nyamuk Kawin", "Lalat", "Cicak Putus Ekor", "Tokek", "Ulat Bulu", "Kelabang", "Buaya Darat",
+  "Gurita", "Kaktus", "Bunga Bangkai", "Pohon Beringin", "Awan Mendung", "Petir", "Pelangi",
+  "Bulu Babi", "Lintah", "Tikus Got", "Burung Hantu", "Kucing Oyen", "Dompet Kosong", "Sakit Gigi",
+  "Kesemutan", "Kentut", "Masuk Angin", "Tanggal Tua", "Cicilan", "Bau Badan", "Kutu Rambut",
+  "Panu", "Ketombe", "Kurang Tidur", "Ngantuk Berat", "Patah Hati", "Mimpi Buruk", "Kebelet Boker",
+  "Lupa Password", "Mabuk Laut", "Kesandung Batu", "Gaji Numpang Lewat", "Pocong", "Tuyul",
+  "Kuntilanak", "Alien", "UFO", "Ninja", "Zombie", "Bajak Laut", "Putri Duyung", "Malaikat"
 ];
 
 const PALETTE = ['#000000', '#ef4444', '#3b82f6', '#22c55e', '#facc15'];
 
-// --- DATABASE MELODI BACKGROUND MUSIC ---
 const BGM_MELODIES = [
-  [261.63, 329.63, 392.00, 440.00, 392.00, 329.63, 293.66, 329.63], // Upbeat
-  [261.63, null, 392.00, null, 329.63, null, 392.00, null],         // Chill
-  [220.00, 261.63, 329.63, 440.00, 392.00, 329.63, 261.63, 293.66]  // Mikir
+  [261.63, 329.63, 392.00, 440.00, 392.00, 329.63, 293.66, 329.63],
+  [261.63, null, 392.00, null, 329.63, null, 392.00, null],
+  [220.00, 261.63, 329.63, 440.00, 392.00, 329.63, 261.63, 293.66]
 ];
 
-// --- GENERATOR SUARA EFFECT (DENGAN KONTROL VOLUME) ---
-const playSound = (type, volMultiplier = 1) => {
-  if (volMultiplier <= 0) return;
+// --- GENERATOR SUARA EFFECT ---
+const playSound = (type) => {
   try {
     const AudioContext = window.AudioContext || window.webkitAudioContext;
     if (!AudioContext) return;
@@ -58,32 +49,32 @@ const playSound = (type, volMultiplier = 1) => {
 
     if (type === 'beep') {
       osc.type = 'sine'; osc.frequency.setValueAtTime(800, now);
-      gain.gain.setValueAtTime(0.2 * volMultiplier, now); osc.start(now); osc.stop(now + 0.1);
+      gain.gain.setValueAtTime(0.1, now); osc.start(now); osc.stop(now + 0.1);
     } else if (type === 'start') {
       osc.type = 'sine'; osc.frequency.setValueAtTime(1200, now);
-      gain.gain.setValueAtTime(0.4 * volMultiplier, now); osc.start(now); osc.stop(now + 0.3);
+      gain.gain.setValueAtTime(0.2, now); osc.start(now); osc.stop(now + 0.3);
     } else if (type === 'correct') {
       osc.type = 'sine'; osc.frequency.setValueAtTime(800, now);
       osc.frequency.exponentialRampToValueAtTime(1600, now + 0.1);
-      gain.gain.setValueAtTime(0.3 * volMultiplier, now); gain.gain.linearRampToValueAtTime(0, now + 0.3);
+      gain.gain.setValueAtTime(0.1, now); gain.gain.linearRampToValueAtTime(0, now + 0.3);
       osc.start(now); osc.stop(now + 0.3);
     } else if (type === 'wrong') {
       osc.type = 'sawtooth'; osc.frequency.setValueAtTime(200, now);
       osc.frequency.linearRampToValueAtTime(100, now + 0.3);
-      gain.gain.setValueAtTime(0.3 * volMultiplier, now); gain.gain.linearRampToValueAtTime(0, now + 0.3);
+      gain.gain.setValueAtTime(0.1, now); gain.gain.linearRampToValueAtTime(0, now + 0.3);
       osc.start(now); osc.stop(now + 0.3);
     } else if (type === 'gameover') {
       osc.type = 'triangle'; osc.frequency.setValueAtTime(400, now);
       osc.frequency.setValueAtTime(523.25, now + 0.1); osc.frequency.setValueAtTime(659.25, now + 0.2);
-      gain.gain.setValueAtTime(0.3 * volMultiplier, now); gain.gain.linearRampToValueAtTime(0, now + 0.8);
+      gain.gain.setValueAtTime(0.1, now); gain.gain.linearRampToValueAtTime(0, now + 0.8);
       osc.start(now); osc.stop(now + 0.8);
     }
   } catch(e) { console.error("Audio error", e); }
 };
 
-// --- FUNGSI GENERATOR NADA BGM (DENGAN KONTROL VOLUME) ---
-const playBGMNote = (ctx, freq, volMultiplier = 1) => {
-  if (!freq || volMultiplier <= 0) return;
+// --- FUNGSI GENERATOR NADA BGM ---
+const playBGMNote = (ctx, freq) => {
+  if (!freq) return;
   try {
     const osc = ctx.createOscillator();
     const gain = ctx.createGain();
@@ -95,19 +86,12 @@ const playBGMNote = (ctx, freq, volMultiplier = 1) => {
 
     const now = ctx.currentTime;
     gain.gain.setValueAtTime(0, now);
-
-    // Base volume dinaikkan jadi 0.08 (awalnya 0.015) agar kedengaran di HP
-    gain.gain.linearRampToValueAtTime(0.08 * volMultiplier, now + 0.05);
+    gain.gain.linearRampToValueAtTime(0.08, now + 0.05); // Volume dinaikkan dari 0.015 jadi 0.08 agar keras di HP
     gain.gain.exponentialRampToValueAtTime(0.001, now + 0.3);
 
     osc.start(now);
     osc.stop(now + 0.35);
   } catch(e) { console.error("BGM Audio error", e); }
-};
-
-const getRandomWords = (count = 3) => {
-  const shuffled = [...WORD_LIST].sort(() => 0.5 - Math.random());
-  return shuffled.slice(0, count);
 };
 
 export default function Pictionary() {
@@ -123,17 +107,14 @@ export default function Pictionary() {
   const [activeColor, setActiveColor] = useState('#000000');
 
   const [showTooltip, setShowTooltip] = useState(false);
+  const [isMuted, setIsMuted] = useState(false);
 
-  // STATE MODAL ALERT (PENGGANTI ALERT BAWAAN)
+  // State untuk melacak kata yang sudah digunakan & Timer pilih kata
+  const [usedWords, setUsedWords] = useState(() => JSON.parse(localStorage.getItem('pict_usedWords')) || []);
+  const [chooseTimer, setChooseTimer] = useState(5);
+
   const [alertData, setAlertData] = useState({ isOpen: false, title: '', message: '' });
   const showAlert = (title, message) => setAlertData({ isOpen: true, title, message });
-
-  // --- STATE VOLUME BGM & EFFECT ---
-  const [volume, setVolume] = useState(() => {
-    const saved = localStorage.getItem('pict_volume');
-    return saved !== null ? parseFloat(saved) : 0.8; // Default 80%
-  });
-  const volumeRef = useRef(volume); // Ref untuk dibaca oleh setInterval BGM
 
   const canvasRef = useRef(null);
   const isDrawingRef = useRef(false);
@@ -141,18 +122,16 @@ export default function Pictionary() {
   const chatContainerRef = useRef(null);
   const bgmRef = useRef({ interval: null, ctx: null, step: 0, melodyIndex: 0 });
 
-  const handleVolumeChange = (e) => {
-    const val = parseFloat(e.target.value);
-    setVolume(val);
-    volumeRef.current = val;
-    localStorage.setItem('pict_volume', val);
-  };
-
   useEffect(() => {
     const savedRoom = localStorage.getItem('roomCode');
     const savedName = localStorage.getItem('playerName');
     if (savedRoom && savedName) { setRoomCode(savedRoom); setPlayerName(savedName); connectToRoom(savedRoom, savedName); }
   }, []);
+
+  // Menyimpan riwayat kata ke localStorage
+  useEffect(() => {
+    localStorage.setItem('pict_usedWords', JSON.stringify(usedWords));
+  }, [usedWords]);
 
   const connectToRoom = (code, name) => {
     const roomRef = ref(db, `rooms/${code}`);
@@ -181,10 +160,10 @@ export default function Pictionary() {
   };
 
   const joinRoom = () => {
-    if (!roomCode || !playerName) return showAlert("⚠️ Oops!", "Jangan lupa isi Nama dan Kode Room kamu dulu bro!");
+    if (!roomCode || !playerName) return showAlert("⚠️ Oops!", "Jangan lupa isi Nama dan Kode Room dulu bro!");
     localStorage.setItem('roomCode', roomCode); localStorage.setItem('playerName', playerName);
     connectToRoom(roomCode, playerName);
-    playSound('beep', volumeRef.current);
+    playSound('beep');
   };
 
   const exitRoom = async () => {
@@ -195,9 +174,16 @@ export default function Pictionary() {
     localStorage.clear(); setIsJoined(false); setRoomData(null);
   };
 
-  // --- SISTEM BACKGROUND MUSIC (BGM) MEMAKAI VOLUME REF ---
+  // --- SISTEM BACKGROUND MUSIC (BGM) & WAKEUPS ---
   useEffect(() => {
-    if (isJoined && volumeRef.current > 0) {
+    // Trik agar AudioContext ter-trigger saat user tap layar (menangani aturan Autoplay Browser)
+    const handleInteraction = () => {
+      if (bgmRef.current.ctx && bgmRef.current.ctx.state === 'suspended') bgmRef.current.ctx.resume();
+    };
+    window.addEventListener('click', handleInteraction);
+    window.addEventListener('touchstart', handleInteraction);
+
+    if (isJoined && !isMuted) {
       const AudioContext = window.AudioContext || window.webkitAudioContext;
       if (!bgmRef.current.ctx) bgmRef.current.ctx = new AudioContext();
       const ctx = bgmRef.current.ctx;
@@ -208,8 +194,7 @@ export default function Pictionary() {
         bgmRef.current.interval = setInterval(() => {
           const seq = BGM_MELODIES[bgmRef.current.melodyIndex];
           const freq = seq[bgmRef.current.step % seq.length];
-          // Mainkan dengan volume slider saat ini
-          playBGMNote(ctx, freq, volumeRef.current);
+          playBGMNote(ctx, freq);
           bgmRef.current.step++;
         }, 300);
       }
@@ -221,8 +206,10 @@ export default function Pictionary() {
     return () => {
       clearInterval(bgmRef.current.interval);
       bgmRef.current.interval = null;
+      window.removeEventListener('click', handleInteraction);
+      window.removeEventListener('touchstart', handleInteraction);
     };
-  }, [isJoined, volume]); // Update dipicu oleh perubahan volume atau saat join
+  }, [isJoined, isMuted]);
 
   const toggleReady = () => update(ref(db, `rooms/${roomCode}/players/${playerName}`), { isReady: !(roomData?.players[playerName]?.isReady) });
 
@@ -237,13 +224,23 @@ export default function Pictionary() {
   const hasGuessed = correctGuessers.includes(playerName);
   const isSpectator = (roomData?.gameState?.status === "playing" || roomData?.gameState?.status === "starting" || roomData?.gameState?.status === "choosing_word") && !turnOrder.includes(playerName);
 
+  // Filter kata yang belum dipakai
+  const getUnusedWords = (count = 3) => {
+    let available = WORD_LIST.filter(w => !usedWords.includes(w));
+    if (available.length < count) {
+      available = [...WORD_LIST]; // Reset jika habis
+      setUsedWords([]);
+    }
+    return available.sort(() => 0.5 - Math.random()).slice(0, count);
+  };
+
   const startGameSequence = () => {
     const activePlayers = Object.keys(roomData.players);
     update(ref(db, `rooms/${roomCode}/gameState`), {
       status: "choosing_word",
       currentDrawerIndex: 0,
       turnOrder: activePlayers,
-      wordChoices: getRandomWords(3),
+      wordChoices: getUnusedWords(3),
       currentWord: "",
       canvasData: "",
       correctGuessers: []
@@ -265,7 +262,7 @@ export default function Pictionary() {
       update(ref(db, `rooms/${roomCode}/gameState`), {
         status: "choosing_word",
         currentDrawerIndex: nextIndex,
-        wordChoices: getRandomWords(3),
+        wordChoices: getUnusedWords(3),
         currentWord: "",
         canvasData: "",
         correctGuessers: []
@@ -273,7 +270,31 @@ export default function Pictionary() {
     }
   };
 
+  // --- LOGIKA TIMER PILIH KATA (5 DETIK) ---
+  useEffect(() => {
+    if (roomData?.gameState?.status === 'choosing_word' && isMyTurn) {
+      setChooseTimer(5);
+      const interval = setInterval(() => {
+        setChooseTimer(prev => {
+          if (prev <= 1) {
+            clearInterval(interval);
+            // Auto Select secara acak jika waktu habis
+            const choices = roomData.gameState.wordChoices;
+            if (choices && choices.length > 0) {
+              const randomPick = choices[Math.floor(Math.random() * choices.length)];
+              handleWordSelect(randomPick);
+            }
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+      return () => clearInterval(interval);
+    }
+  }, [roomData?.gameState?.status, isMyTurn, roomData?.gameState?.wordChoices]);
+
   const handleWordSelect = (selectedWord) => {
+    setUsedWords(prev => [...prev, selectedWord]); // Simpan ke riwayat
     update(ref(db, `rooms/${roomCode}/gameState`), {
       status: "starting",
       currentWord: selectedWord,
@@ -281,15 +302,17 @@ export default function Pictionary() {
     });
   };
 
+  // --- LOGIKA ANIMASI 3..2..1 ---
   useEffect(() => {
     if (roomData?.gameState?.status === 'starting') {
-      let count = 3; setCountdown(count); playSound('beep', volumeRef.current);
+      let count = 3; setCountdown(count); playSound('beep');
       const interval = setInterval(() => {
         count--;
-        if (count > 0) { setCountdown(count); playSound('beep', volumeRef.current); }
-        else if (count === 0) { setCountdown("MULAI!"); playSound('start', volumeRef.current); }
+        if (count > 0) { setCountdown(count); playSound('beep'); }
+        else if (count === 0) { setCountdown("MULAI!"); playSound('start'); }
         else {
           clearInterval(interval); setCountdown(null);
+          // Set waktu 90 detik di database
           if (isMyTurn) update(ref(db, `rooms/${roomCode}/gameState`), { status: 'playing', turnEndTime: Date.now() + 90000 });
         }
       }, 1000);
@@ -297,8 +320,10 @@ export default function Pictionary() {
     }
   }, [roomData?.gameState?.status, isMyTurn, roomCode]);
 
+  // --- MEMBERSIHKAN ANIMASI "MULAI" & MENCEGAH BUG NYANGKUT ---
   useEffect(() => {
     if (roomData?.gameState?.status === 'playing') {
+      setCountdown(null); // Paksa hapus teks "MULAI"
       setRoleAnim(true);
       const timer = setTimeout(() => setRoleAnim(false), 2000);
       return () => clearTimeout(timer);
@@ -307,6 +332,7 @@ export default function Pictionary() {
     }
   }, [roomData?.gameState?.status]);
 
+  // --- TIMER GAMEPLAY (90 Detik) ---
   useEffect(() => {
     if (roomData?.gameState?.status === 'playing') {
       const interval = setInterval(() => {
@@ -322,13 +348,14 @@ export default function Pictionary() {
       }, 1000);
       return () => clearInterval(interval);
     } else if (roomData?.gameState?.status === 'starting' || roomData?.gameState?.status === 'waiting' || roomData?.gameState?.status === 'choosing_word') {
-        setTimeLeft(90);
+        setTimeLeft(90); // Reset UI timer
     }
   }, [roomData?.gameState?.status, roomData?.gameState?.turnEndTime, isMyTurn, correctGuessers.length]);
 
+  // --- AKHIR RONDE ---
   useEffect(() => {
     if (roomData?.gameState?.status === 'roundEnd') {
-      roomData.gameState.endReason === 'timeup' ? playSound('wrong', volumeRef.current) : playSound('correct', volumeRef.current);
+      roomData.gameState.endReason === 'timeup' ? playSound('wrong') : playSound('correct');
       const timer = setTimeout(() => { if (isMyTurn) nextTurn(); }, 4000);
       return () => clearTimeout(timer);
     }
@@ -336,7 +363,7 @@ export default function Pictionary() {
 
   useEffect(() => {
     if (roomData?.gameState?.status === 'gameOver') {
-      playSound('gameover', volumeRef.current);
+      playSound('gameover');
       const timer = setTimeout(() => {
         if (isMyTurn) {
           update(ref(db, `rooms/${roomCode}/gameState`), { status: "waiting" });
@@ -389,7 +416,7 @@ export default function Pictionary() {
       const currentWord = roomData?.gameState?.currentWord;
       if (guessInput.toLowerCase() === currentWord.toLowerCase()) {
         if (hasGuessed) return setGuessInput('');
-        playSound('correct', volumeRef.current);
+        playSound('correct');
 
         const points = Math.max(2, 10 - (correctGuessers.length * 2));
         const newCorrectGuessers = [...correctGuessers, playerName];
@@ -413,22 +440,11 @@ export default function Pictionary() {
     return Object.entries(roomData.players).map(([name, data]) => ({ name, score: data.score || 0 })).sort((a, b) => b.score - a.score).slice(0, 3);
   };
 
-  // --- RENDER SCREEN BELUM MASUK ROOM ---
   if (!isJoined) {
     return (
       <div>
-        <ConfirmModal
-          isOpen={alertData.isOpen}
-          title={alertData.title}
-          message={alertData.message}
-          confirmText="Oke Paham!"
-          confirmColor="#3b82f6"
-          onConfirm={() => setAlertData({ ...alertData, isOpen: false })}
-        />
-
-        <Link to="/" style={{ display: 'inline-block', color: '#94a3b8', textDecoration: 'none', marginTop: '10px', fontSize: '14px', fontWeight: 'bold' }}>
-          ← Kembali
-        </Link>
+        <ConfirmModal isOpen={alertData.isOpen} title={alertData.title} message={alertData.message} confirmText="Oke Paham!" confirmColor="#3b82f6" onConfirm={() => setAlertData({ ...alertData, isOpen: false })} />
+        <Link to="/" style={{ display: 'inline-block', color: '#94a3b8', textDecoration: 'none', marginTop: '10px', fontSize: '14px', fontWeight: 'bold' }}>← Kembali</Link>
         <h2 style={{ textAlign: 'center', marginBottom: '20px', marginTop: '10px' }}>🎨 Tebak Gambar</h2>
         <div style={{ background: '#1e293b', padding: '20px', borderRadius: '8px' }}>
           <input className="input-field" placeholder="Nama Kamu" value={playerName} onChange={e => setPlayerName(e.target.value)} />
@@ -444,31 +460,28 @@ export default function Pictionary() {
   return (
     <div style={{ position: 'relative', display: 'flex', flexDirection: 'column', gap: '10px' , marginTop: '10px'}}>
 
+      {/* CSS KHUSUS ANIMASI LOADING BAR */}
+      <style>{`
+        @keyframes shrinkBar {
+          from { width: 100%; }
+          to { width: 0%; }
+        }
+      `}</style>
+
       {/* HEADER NAVIGASI & INFO */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', position: 'relative' }}>
         <div style={{ flex: 1 }}>
           <h3 style={{ margin: 0, fontSize: '16px' }}>Room: <span style={{ color: '#3b82f6' }}>{roomCode}</span></h3>
         </div>
 
-        {/* TENGAH: Slider BGM & Bug Icon */}
-        <div style={{ flex: 1, display: 'flex', justifyContent: 'center', gap: '10px', position: 'relative' }}>
-
-          {/* SLIDER VOLUME MUSIK BARU */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '5px', background: 'rgba(0,0,0,0.3)', padding: '4px 8px', borderRadius: '15px' }}>
-            <span style={{fontSize: '14px'}}>{volume === 0 ? '🔇' : '🎵'}</span>
-            <input
-              type="range"
-              min="0" max="1" step="0.1"
-              value={volume}
-              onChange={handleVolumeChange}
-              style={{ width: '50px', accentColor: '#3b82f6' }}
-            />
-          </div>
-
-          <button onClick={() => setShowTooltip(!showTooltip)} style={{ background: 'none', border: 'none', fontSize: '20px', cursor: 'pointer', padding: 0 }}>❓</button>
+        <div style={{ flex: 1, display: 'flex', justifyContent: 'center', gap: '15px', position: 'relative' }}>
+          <button onClick={() => setIsMuted(!isMuted)} style={{ background: 'none', border: 'none', fontSize: '20px', cursor: 'pointer', padding: 0 }} title={isMuted ? "Hidupkan Musik" : "Matikan Musik"}>
+            {isMuted ? '🔇' : '🎵'}
+          </button>
+          <button onClick={() => setShowTooltip(!showTooltip)} style={{ background: 'none', border: 'none', fontSize: '20px', cursor: 'pointer', padding: 0 }}>🐛</button>
           {showTooltip && (
             <div style={{ position: 'absolute', top: '35px', left: '50%', transform: 'translateX(-50%)', background: '#334155', color: '#f8fafc', padding: '8px 12px', borderRadius: '6px', fontSize: '11px', width: '180px', textAlign: 'center', zIndex: 100, boxShadow: '0 4px 10px rgba(0,0,0,0.5)', border: '1px solid #475569' }}>
-              Refresh halaman ini jika terjadi bug, layar macet, atau garis putus-putus.
+              Refresh halaman jika layar macet (musik akan jalan otomatis saat disentuh).
             </div>
           )}
         </div>
@@ -506,12 +519,18 @@ export default function Pictionary() {
       {/* AREA CANVAS & ANIMASI OVERLAY */}
       <div className="canvas-container" style={{ position: 'relative', margin: '0' }}>
 
-        {/* OVERLAY: PEMILIHAN KATA (Hanya muncul untuk penggambar) */}
+        {/* OVERLAY: PEMILIHAN KATA DENGAN LOADING BAR 5 DETIK */}
         {roomData?.gameState?.status === "choosing_word" && (
           <div className="overlay-anim" style={{ flexDirection: 'column', background: 'rgba(15,23,42,0.98)', zIndex: 30 }}>
             {isMyTurn ? (
               <>
-                <h2 style={{ color: '#facc15', marginBottom: '20px', fontSize: '1.5rem', textAlign: 'center' }}>Pilih Kata Buat Digambar!</h2>
+                <h2 style={{ color: '#facc15', margin: '0 0 5px 0', fontSize: '1.5rem', textAlign: 'center' }}>Pilih Kata Buat Digambar!</h2>
+
+                {/* Bar Waktu Memilih Kata */}
+                <div style={{ width: '80%', background: '#334155', height: '6px', borderRadius: '3px', marginBottom: '20px', overflow: 'hidden' }}>
+                   <div style={{ width: `${(chooseTimer / 5) * 100}%`, background: '#facc15', height: '100%', transition: 'width 1s linear' }} />
+                </div>
+
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', width: '80%' }}>
                   {roomData.gameState.wordChoices?.map((word, idx) => (
                     <button
@@ -527,27 +546,46 @@ export default function Pictionary() {
                 </div>
               </>
             ) : (
-              <h2 style={{ color: '#94a3b8', fontSize: '1.2rem', textAlign: 'center' }}>
-                Menunggu <span style={{color: '#f8fafc'}}>{currentDrawerName}</span> memilih kata... ⏳
-              </h2>
+              <div style={{ textAlign: 'center' }}>
+                <h2 style={{ color: '#94a3b8', fontSize: '1.2rem', marginBottom: '15px' }}>
+                  Menunggu <span style={{color: '#f8fafc'}}>{currentDrawerName}</span> memilih kata...
+                </h2>
+                {/* Bar Loading Untuk Penonton biar tau game jalan */}
+                <div style={{ width: '200px', height: '4px', background: '#334155', borderRadius: '2px', overflow: 'hidden', margin: '0 auto' }}>
+                   <div style={{ width: '100%', height: '100%', background: '#facc15', animation: 'shrinkBar 5s linear forwards' }} />
+                </div>
+              </div>
             )}
           </div>
         )}
 
-        {countdown && <div className="overlay-anim" style={{zIndex: 25}}>{countdown}</div>}
+        {/* OVERLAY: ANIMASI MULAI 3...2...1 */}
+        {countdown && (
+          <div className="overlay-anim" style={{zIndex: 25, flexDirection: 'column'}}>
+            <div style={{fontSize: '4rem'}}>{countdown}</div>
+            <div style={{ width: '150px', height: '4px', background: '#334155', marginTop: '20px', borderRadius: '2px', overflow: 'hidden' }}>
+               <div style={{ width: '100%', height: '100%', background: '#22c55e', animation: 'shrinkBar 3s linear forwards' }} />
+            </div>
+          </div>
+        )}
+
         {roleAnim && !isSpectator && roomData?.gameState?.status !== "choosing_word" && <div className="overlay-anim" style={{ fontSize: '1.2rem', zIndex: 25 }}>{isMyTurn ? "🖌️ Giliranmu!" : "🤔 Siap Tebak!"}</div>}
 
-        {/* OVERLAY AKHIR RONDE */}
+        {/* OVERLAY AKHIR RONDE (Tebakan Benar / Waktu Habis) */}
         {roomData?.gameState?.status === 'roundEnd' && (
           <div className="overlay-anim" style={{ flexDirection: 'column', background: 'rgba(15,23,42,0.98)', zIndex: 30 }}>
             <h2 style={{ fontSize: '1.5rem', color: roomData.gameState.endReason === 'timeup' ? '#ef4444' : '#22c55e', marginBottom: '10px' }}>
               {roomData.gameState.endReason === 'timeup' ? '⏰ WAKTU HABIS!' : '🎉 SEMUA MENEBAK!'}
             </h2>
-            <p style={{ fontSize: '1rem', color: 'white' }}>Jawabannya adalah: <br/><span style={{color: '#facc15', fontSize: '1.5rem'}}>{roomData.gameState.currentWord}</span></p>
+            <p style={{ fontSize: '1rem', color: 'white', marginBottom: '20px' }}>Jawabannya adalah: <br/><span style={{color: '#facc15', fontSize: '1.5rem'}}>{roomData.gameState.currentWord}</span></p>
+            {/* Loading Bar Jeda Antar Ronde 4 detik */}
+            <div style={{ width: '200px', height: '4px', background: '#334155', borderRadius: '2px', overflow: 'hidden' }}>
+               <div style={{ width: '100%', height: '100%', background: '#3b82f6', animation: 'shrinkBar 4s linear forwards' }} />
+            </div>
           </div>
         )}
 
-        {/* OVERLAY GAME OVER (PODIUM) */}
+        {/* OVERLAY GAME OVER (PODIUM JUARA) */}
         {roomData?.gameState?.status === 'gameOver' && (
           <div className="overlay-anim" style={{ flexDirection: 'column', background: 'rgba(15,23,42,0.98)', zIndex: 30 }}>
             <h2 style={{ fontSize: '2rem', marginBottom: '20px', color: '#facc15' }}>🏆 PODIUM 🏆</h2>
@@ -556,6 +594,10 @@ export default function Pictionary() {
                  #{i+1} {p.name} <span style={{fontSize:'0.8em'}}>({p.score} Pts)</span>
                </div>
             ))}
+            {/* Loading Bar Reset Game 7 detik */}
+            <div style={{ width: '200px', height: '4px', background: '#334155', marginTop: '25px', borderRadius: '2px', overflow: 'hidden' }}>
+               <div style={{ width: '100%', height: '100%', background: '#facc15', animation: 'shrinkBar 7s linear forwards' }} />
+            </div>
           </div>
         )}
 
