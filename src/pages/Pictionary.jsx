@@ -62,6 +62,10 @@ const playSound = (type) => {
       osc.frequency.setValueAtTime(523.25, now + 0.1); osc.frequency.setValueAtTime(659.25, now + 0.2);
       gain.gain.setValueAtTime(0.1, now); gain.gain.linearRampToValueAtTime(0, now + 0.8);
       osc.start(now); osc.stop(now + 0.8);
+    } else if (type === 'tick') { // Suara tik tok 5 detik terakhir
+      osc.type = 'square'; osc.frequency.setValueAtTime(900, now);
+      gain.gain.setValueAtTime(0.05, now); gain.gain.exponentialRampToValueAtTime(0.001, now + 0.1);
+      osc.start(now); osc.stop(now + 0.1);
     }
   } catch(e) { console.error("Audio error", e); }
 };
@@ -92,18 +96,28 @@ export default function Pictionary() {
   const colorRef = useRef('#000000');
   const chatContainerRef = useRef(null);
 
+  // REFERENSI WAKTU SERVER FIREBASE (Mencegah bug sinkronisasi waktu HP)
+  const serverOffsetRef = useRef(0);
+
   useEffect(() => {
     const savedRoom = localStorage.getItem('roomCode');
     const savedName = localStorage.getItem('playerName');
     if (savedRoom && savedName) { setRoomCode(savedRoom); setPlayerName(savedName); connectToRoom(savedRoom, savedName); }
   }, []);
 
-  // Menyimpan riwayat kata ke localStorage
+  // Ambil offset waktu server Firebase
+  useEffect(() => {
+    const offsetRef = ref(db, ".info/serverTimeOffset");
+    const unsub = onValue(offsetRef, (snap) => {
+      serverOffsetRef.current = snap.val() || 0;
+    });
+    return () => unsub();
+  }, []);
+
   useEffect(() => {
     localStorage.setItem('pict_usedWords', JSON.stringify(usedWords));
   }, [usedWords]);
 
-  // SINKRONISASI SKOR KE LOCAL STORAGE SECARA REAL-TIME
   useEffect(() => {
     if (roomData?.players?.[playerName]?.score !== undefined) {
       localStorage.setItem(`pict_score_${playerName}`, roomData.players[playerName].score);
@@ -115,7 +129,6 @@ export default function Pictionary() {
     const playerRef = ref(db, `rooms/${code}/players/${name}`);
     onDisconnect(playerRef).remove();
 
-    // FIX: Ambil skor lama dari local storage jika ada, kalau tidak mulai dari 0
     const savedScore = parseInt(localStorage.getItem(`pict_score_${name}`)) || 0;
 
     get(playerRef).then((snap) => {
@@ -147,8 +160,6 @@ export default function Pictionary() {
     if (!roomCode || !playerName) return showAlert("⚠️ Oops!", "Jangan lupa isi Nama dan Kode Room dulu bro!");
     localStorage.setItem('roomCode', roomCode);
     localStorage.setItem('playerName', playerName);
-
-    // Saat user join room SECARA MANUAL (bukan dari refresh), reset skornya ke 0 di local storage
     localStorage.setItem(`pict_score_${playerName}`, 0);
 
     connectToRoom(roomCode, playerName);
@@ -179,11 +190,10 @@ export default function Pictionary() {
   const hasGuessed = correctGuessers.includes(playerName);
   const isSpectator = (roomData?.gameState?.status === "playing" || roomData?.gameState?.status === "starting" || roomData?.gameState?.status === "choosing_word") && !turnOrder.includes(playerName);
 
-  // Filter kata yang belum dipakai
   const getUnusedWords = (count = 3) => {
     let available = WORD_LIST.filter(w => !usedWords.includes(w));
     if (available.length < count) {
-      available = [...WORD_LIST]; // Reset jika habis
+      available = [...WORD_LIST];
       setUsedWords([]);
     }
     return available.sort(() => 0.5 - Math.random()).slice(0, count);
@@ -199,7 +209,7 @@ export default function Pictionary() {
       currentWord: "",
       canvasData: "",
       correctGuessers: [],
-      turnEndTime: null // Reset waktu
+      turnEndTime: null
     });
     activePlayers.forEach(p => update(ref(db, `rooms/${roomCode}/players/${p}`), { isReady: false }));
   };
@@ -235,7 +245,6 @@ export default function Pictionary() {
         setChooseTimer(prev => {
           if (prev <= 1) {
             clearInterval(interval);
-            // Auto Select secara acak jika waktu habis
             const choices = roomData.gameState.wordChoices;
             if (choices && choices.length > 0) {
               const randomPick = choices[Math.floor(Math.random() * choices.length)];
@@ -259,9 +268,9 @@ export default function Pictionary() {
     });
   };
 
-  // --- SINKRONISASI ANIMASI 3..2..1 & MULAI WAKTU ---
+  // --- SINKRONISASI ANIMASI 3..2..1 UNTUK SEMUA ORANG ---
   useEffect(() => {
-    if (roomData?.gameState?.status === 'starting' && isMyTurn) {
+    if (roomData?.gameState?.status === 'starting') {
       let count = 3;
       setCountdown(count);
       playSound('beep');
@@ -275,13 +284,17 @@ export default function Pictionary() {
           setCountdown("MULAI!");
           playSound('start');
         } else {
-          // Animasi selesai, HAPUS tulisan MULAI dan TRIGGER waktu 90 detik ke database!
           clearInterval(interval);
           setCountdown(null);
-          update(ref(db, `rooms/${roomCode}/gameState`), {
-            status: 'playing',
-            turnEndTime: Date.now() + 90000
-          });
+          // HANYA penggambar yang push waktu baru, agar tidak ganda.
+          // Waktu dikalkulasi dari waktu satelit server Firebase.
+          if (isMyTurn) {
+            const currentServerTime = Date.now() + serverOffsetRef.current;
+            update(ref(db, `rooms/${roomCode}/gameState`), {
+              status: 'playing',
+              turnEndTime: currentServerTime + 90000
+            });
+          }
         }
       }, 1000);
       return () => clearInterval(interval);
@@ -290,7 +303,7 @@ export default function Pictionary() {
 
   useEffect(() => {
     if (roomData?.gameState?.status === 'playing') {
-      setCountdown(null); // Bersihkan tulisan MULAI di layar penonton
+      setCountdown(null);
       setRoleAnim(true);
       const timer = setTimeout(() => setRoleAnim(false), 2000);
       return () => clearTimeout(timer);
@@ -299,11 +312,19 @@ export default function Pictionary() {
     }
   }, [roomData?.gameState?.status]);
 
-  // --- TIMER GAMEPLAY UTAMA (SINKRON) ---
+  // --- SUARA DETIK TERAKHIR ---
+  useEffect(() => {
+    if (roomData?.gameState?.status === 'playing' && timeLeft <= 5 && timeLeft > 0) {
+      playSound('tick');
+    }
+  }, [timeLeft, roomData?.gameState?.status]);
+
+  // --- TIMER GAMEPLAY UTAMA (SINKRON SEMPURNA) ---
   useEffect(() => {
     if (roomData?.gameState?.status === 'playing' && roomData?.gameState?.turnEndTime) {
       const interval = setInterval(() => {
-        const remaining = Math.floor((roomData.gameState.turnEndTime - Date.now()) / 1000);
+        const currentServerTime = Date.now() + serverOffsetRef.current;
+        const remaining = Math.floor((roomData.gameState.turnEndTime - currentServerTime) / 1000);
 
         if (remaining <= 0) {
           clearInterval(interval);
@@ -323,7 +344,6 @@ export default function Pictionary() {
     }
   }, [roomData?.gameState?.status, roomData?.gameState?.turnEndTime, isMyTurn, correctGuessers.length]);
 
-  // --- AKHIR RONDE ---
   useEffect(() => {
     if (roomData?.gameState?.status === 'roundEnd') {
       roomData.gameState.endReason === 'timeup' ? playSound('wrong') : playSound('correct');
@@ -448,7 +468,7 @@ export default function Pictionary() {
           <button onClick={() => setShowTooltip(!showTooltip)} style={{ background: 'none', border: 'none', fontSize: '20px', cursor: 'pointer', padding: 0 }}>🐛</button>
           {showTooltip && (
             <div style={{ position: 'absolute', top: '35px', left: '50%', transform: 'translateX(-50%)', background: '#334155', color: '#f8fafc', padding: '8px 12px', borderRadius: '6px', fontSize: '11px', width: '180px', textAlign: 'center', zIndex: 100, boxShadow: '0 4px 10px rgba(0,0,0,0.5)', border: '1px solid #475569' }}>
-              Refresh halaman ini jika terjadi bug, layar macet, atau garis putus-putus.
+              Waktu sudah tersinkronisasi sempurna dengan satelit Google.
             </div>
           )}
         </div>
@@ -475,7 +495,7 @@ export default function Pictionary() {
                  : (isMyTurn ? `Gambarkan: ${roomData.gameState.currentWord}` : `${currentDrawerName || 'Seseorang'} menggambar...`)
             }
           </span>
-          <span style={{ color: timeLeft <= 10 ? '#ef4444' : '#facc15', animation: timeLeft <= 10 ? 'blinkText 1s infinite' : 'none' }}>
+          <span style={{ color: timeLeft <= 5 ? '#ef4444' : '#facc15', animation: timeLeft <= 5 ? 'blinkText 0.5s infinite' : 'none' }}>
             ⏳ {Math.floor(timeLeft / 60)}:{(timeLeft % 60).toString().padStart(2, '0')}
           </span>
         </div>
@@ -527,19 +547,14 @@ export default function Pictionary() {
           </div>
         )}
 
-        {/* OVERLAY: ANIMASI MULAI 3...2...1 (HANYA MUNCUL SAAT STATUS 'starting') */}
-        {roomData?.gameState?.status === "starting" && isMyTurn && countdown && (
+        {/* OVERLAY: ANIMASI MULAI 3...2...1 (MUNCUL UNTUK SEMUA) */}
+        {roomData?.gameState?.status === "starting" && countdown && (
           <div className="overlay-anim" style={{zIndex: 25, flexDirection: 'column'}}>
             <div style={{fontSize: '4rem', textShadow: '2px 2px 10px rgba(0,0,0,0.8)'}}>{countdown}</div>
+            <div style={{ width: '150px', height: '4px', background: '#334155', marginTop: '20px', borderRadius: '2px', overflow: 'hidden' }}>
+               <div style={{ width: '100%', height: '100%', background: '#22c55e', animation: 'shrinkBar 3s linear forwards' }} />
+            </div>
           </div>
-        )}
-
-        {/* Mencegah penonton melihat hitungan 321 yang error, gantikan dengan bar tunggu sinkronisasi */}
-        {roomData?.gameState?.status === "starting" && !isMyTurn && (
-           <div className="overlay-anim" style={{zIndex: 25, flexDirection: 'column', background: 'rgba(15,23,42,0.8)'}}>
-             <span style={{fontSize: '30px'}}>⏳</span>
-             <p style={{fontSize: '12px', color: '#cbd5e1', marginTop: '5px'}}>Menyinkronkan waktu...</p>
-           </div>
         )}
 
         {/* ANIMASI "GILIRANMU / SIAP TEBAK" */}
