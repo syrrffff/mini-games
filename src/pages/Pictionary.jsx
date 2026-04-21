@@ -28,12 +28,6 @@ const WORD_LIST = [
 
 const PALETTE = ['#000000', '#ef4444', '#3b82f6', '#22c55e', '#facc15'];
 
-const BGM_MELODIES = [
-  [261.63, 329.63, 392.00, 440.00, 392.00, 329.63, 293.66, 329.63],
-  [261.63, null, 392.00, null, 329.63, null, 392.00, null],
-  [220.00, 261.63, 329.63, 440.00, 392.00, 329.63, 261.63, 293.66]
-];
-
 // --- GENERATOR SUARA EFFECT ---
 const playSound = (type) => {
   try {
@@ -72,28 +66,6 @@ const playSound = (type) => {
   } catch(e) { console.error("Audio error", e); }
 };
 
-// --- FUNGSI GENERATOR NADA BGM ---
-const playBGMNote = (ctx, freq) => {
-  if (!freq) return;
-  try {
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-    osc.connect(gain);
-    gain.connect(ctx.destination);
-
-    osc.type = 'triangle';
-    osc.frequency.value = freq;
-
-    const now = ctx.currentTime;
-    gain.gain.setValueAtTime(0, now);
-    gain.gain.linearRampToValueAtTime(0.08, now + 0.05); // Volume dinaikkan dari 0.015 jadi 0.08 agar keras di HP
-    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.3);
-
-    osc.start(now);
-    osc.stop(now + 0.35);
-  } catch(e) { console.error("BGM Audio error", e); }
-};
-
 export default function Pictionary() {
   const [roomCode, setRoomCode] = useState('');
   const [playerName, setPlayerName] = useState('');
@@ -107,11 +79,10 @@ export default function Pictionary() {
   const [activeColor, setActiveColor] = useState('#000000');
 
   const [showTooltip, setShowTooltip] = useState(false);
-  const [isMuted, setIsMuted] = useState(false);
 
   // State untuk melacak kata yang sudah digunakan & Timer pilih kata
   const [usedWords, setUsedWords] = useState(() => JSON.parse(localStorage.getItem('pict_usedWords')) || []);
-  const [chooseTimer, setChooseTimer] = useState(5);
+  const [chooseTimer, setChooseTimer] = useState(8);
 
   const [alertData, setAlertData] = useState({ isOpen: false, title: '', message: '' });
   const showAlert = (title, message) => setAlertData({ isOpen: true, title, message });
@@ -120,7 +91,6 @@ export default function Pictionary() {
   const isDrawingRef = useRef(false);
   const colorRef = useRef('#000000');
   const chatContainerRef = useRef(null);
-  const bgmRef = useRef({ interval: null, ctx: null, step: 0, melodyIndex: 0 });
 
   useEffect(() => {
     const savedRoom = localStorage.getItem('roomCode');
@@ -133,12 +103,26 @@ export default function Pictionary() {
     localStorage.setItem('pict_usedWords', JSON.stringify(usedWords));
   }, [usedWords]);
 
+  // SINKRONISASI SKOR KE LOCAL STORAGE SECARA REAL-TIME
+  useEffect(() => {
+    if (roomData?.players?.[playerName]?.score !== undefined) {
+      localStorage.setItem(`pict_score_${playerName}`, roomData.players[playerName].score);
+    }
+  }, [roomData?.players, playerName]);
+
   const connectToRoom = (code, name) => {
     const roomRef = ref(db, `rooms/${code}`);
     const playerRef = ref(db, `rooms/${code}/players/${name}`);
     onDisconnect(playerRef).remove();
 
-    get(playerRef).then((snap) => { if (!snap.exists()) update(playerRef, { score: 0, isReady: false }); });
+    // FIX: Ambil skor lama dari local storage jika ada, kalau tidak mulai dari 0
+    const savedScore = parseInt(localStorage.getItem(`pict_score_${name}`)) || 0;
+
+    get(playerRef).then((snap) => {
+      if (!snap.exists()) {
+        update(playerRef, { score: savedScore, isReady: false });
+      }
+    });
 
     onValue(roomRef, (snapshot) => {
       const data = snapshot.val();
@@ -161,7 +145,12 @@ export default function Pictionary() {
 
   const joinRoom = () => {
     if (!roomCode || !playerName) return showAlert("⚠️ Oops!", "Jangan lupa isi Nama dan Kode Room dulu bro!");
-    localStorage.setItem('roomCode', roomCode); localStorage.setItem('playerName', playerName);
+    localStorage.setItem('roomCode', roomCode);
+    localStorage.setItem('playerName', playerName);
+
+    // Saat user join room SECARA MANUAL (bukan dari refresh), reset skornya ke 0 di local storage
+    localStorage.setItem(`pict_score_${playerName}`, 0);
+
     connectToRoom(roomCode, playerName);
     playSound('beep');
   };
@@ -171,45 +160,11 @@ export default function Pictionary() {
     const snap = await get(playersRef);
     if (snap.exists() && Object.keys(snap.val()).length <= 1) remove(ref(db, `rooms/${roomCode}`));
     else remove(ref(db, `rooms/${roomCode}/players/${playerName}`));
-    localStorage.clear(); setIsJoined(false); setRoomData(null);
+
+    localStorage.clear();
+    setIsJoined(false);
+    setRoomData(null);
   };
-
-  // --- SISTEM BACKGROUND MUSIC (BGM) & WAKEUPS ---
-  useEffect(() => {
-    // Trik agar AudioContext ter-trigger saat user tap layar (menangani aturan Autoplay Browser)
-    const handleInteraction = () => {
-      if (bgmRef.current.ctx && bgmRef.current.ctx.state === 'suspended') bgmRef.current.ctx.resume();
-    };
-    window.addEventListener('click', handleInteraction);
-    window.addEventListener('touchstart', handleInteraction);
-
-    if (isJoined && !isMuted) {
-      const AudioContext = window.AudioContext || window.webkitAudioContext;
-      if (!bgmRef.current.ctx) bgmRef.current.ctx = new AudioContext();
-      const ctx = bgmRef.current.ctx;
-      if (ctx.state === 'suspended') ctx.resume();
-
-      if (!bgmRef.current.interval) {
-        bgmRef.current.melodyIndex = Math.floor(Math.random() * BGM_MELODIES.length);
-        bgmRef.current.interval = setInterval(() => {
-          const seq = BGM_MELODIES[bgmRef.current.melodyIndex];
-          const freq = seq[bgmRef.current.step % seq.length];
-          playBGMNote(ctx, freq);
-          bgmRef.current.step++;
-        }, 300);
-      }
-    } else {
-      clearInterval(bgmRef.current.interval);
-      bgmRef.current.interval = null;
-    }
-
-    return () => {
-      clearInterval(bgmRef.current.interval);
-      bgmRef.current.interval = null;
-      window.removeEventListener('click', handleInteraction);
-      window.removeEventListener('touchstart', handleInteraction);
-    };
-  }, [isJoined, isMuted]);
 
   const toggleReady = () => update(ref(db, `rooms/${roomCode}/players/${playerName}`), { isReady: !(roomData?.players[playerName]?.isReady) });
 
@@ -243,7 +198,8 @@ export default function Pictionary() {
       wordChoices: getUnusedWords(3),
       currentWord: "",
       canvasData: "",
-      correctGuessers: []
+      correctGuessers: [],
+      turnEndTime: null // Reset waktu
     });
     activePlayers.forEach(p => update(ref(db, `rooms/${roomCode}/players/${p}`), { isReady: false }));
   };
@@ -265,15 +221,16 @@ export default function Pictionary() {
         wordChoices: getUnusedWords(3),
         currentWord: "",
         canvasData: "",
-        correctGuessers: []
+        correctGuessers: [],
+        turnEndTime: null
       });
     }
   };
 
-  // --- LOGIKA TIMER PILIH KATA (5 DETIK) ---
+  // --- LOGIKA TIMER PILIH KATA (8 DETIK) ---
   useEffect(() => {
     if (roomData?.gameState?.status === 'choosing_word' && isMyTurn) {
-      setChooseTimer(5);
+      setChooseTimer(8);
       const interval = setInterval(() => {
         setChooseTimer(prev => {
           if (prev <= 1) {
@@ -294,7 +251,7 @@ export default function Pictionary() {
   }, [roomData?.gameState?.status, isMyTurn, roomData?.gameState?.wordChoices]);
 
   const handleWordSelect = (selectedWord) => {
-    setUsedWords(prev => [...prev, selectedWord]); // Simpan ke riwayat
+    setUsedWords(prev => [...prev, selectedWord]);
     update(ref(db, `rooms/${roomCode}/gameState`), {
       status: "starting",
       currentWord: selectedWord,
@@ -302,28 +259,38 @@ export default function Pictionary() {
     });
   };
 
-  // --- LOGIKA ANIMASI 3..2..1 ---
+  // --- SINKRONISASI ANIMASI 3..2..1 & MULAI WAKTU ---
   useEffect(() => {
-    if (roomData?.gameState?.status === 'starting') {
-      let count = 3; setCountdown(count); playSound('beep');
+    if (roomData?.gameState?.status === 'starting' && isMyTurn) {
+      let count = 3;
+      setCountdown(count);
+      playSound('beep');
+
       const interval = setInterval(() => {
         count--;
-        if (count > 0) { setCountdown(count); playSound('beep'); }
-        else if (count === 0) { setCountdown("MULAI!"); playSound('start'); }
-        else {
-          clearInterval(interval); setCountdown(null);
-          // Set waktu 90 detik di database
-          if (isMyTurn) update(ref(db, `rooms/${roomCode}/gameState`), { status: 'playing', turnEndTime: Date.now() + 90000 });
+        if (count > 0) {
+          setCountdown(count);
+          playSound('beep');
+        } else if (count === 0) {
+          setCountdown("MULAI!");
+          playSound('start');
+        } else {
+          // Animasi selesai, HAPUS tulisan MULAI dan TRIGGER waktu 90 detik ke database!
+          clearInterval(interval);
+          setCountdown(null);
+          update(ref(db, `rooms/${roomCode}/gameState`), {
+            status: 'playing',
+            turnEndTime: Date.now() + 90000
+          });
         }
       }, 1000);
       return () => clearInterval(interval);
     }
   }, [roomData?.gameState?.status, isMyTurn, roomCode]);
 
-  // --- MEMBERSIHKAN ANIMASI "MULAI" & MENCEGAH BUG NYANGKUT ---
   useEffect(() => {
     if (roomData?.gameState?.status === 'playing') {
-      setCountdown(null); // Paksa hapus teks "MULAI"
+      setCountdown(null); // Bersihkan tulisan MULAI di layar penonton
       setRoleAnim(true);
       const timer = setTimeout(() => setRoleAnim(false), 2000);
       return () => clearTimeout(timer);
@@ -332,11 +299,12 @@ export default function Pictionary() {
     }
   }, [roomData?.gameState?.status]);
 
-  // --- TIMER GAMEPLAY (90 Detik) ---
+  // --- TIMER GAMEPLAY UTAMA (SINKRON) ---
   useEffect(() => {
-    if (roomData?.gameState?.status === 'playing') {
+    if (roomData?.gameState?.status === 'playing' && roomData?.gameState?.turnEndTime) {
       const interval = setInterval(() => {
         const remaining = Math.floor((roomData.gameState.turnEndTime - Date.now()) / 1000);
+
         if (remaining <= 0) {
           clearInterval(interval);
           if (isMyTurn) {
@@ -344,11 +312,14 @@ export default function Pictionary() {
              if (correctGuessers.length === 0) update(ref(db, `rooms/${roomCode}/players/${playerName}`), { score: currentScore + 10 });
              update(ref(db, `rooms/${roomCode}/gameState`), { status: 'roundEnd', endReason: 'timeup' });
           }
-        } else { setTimeLeft(remaining); }
-      }, 1000);
+          setTimeLeft(0);
+        } else {
+          setTimeLeft(remaining);
+        }
+      }, 500);
       return () => clearInterval(interval);
     } else if (roomData?.gameState?.status === 'starting' || roomData?.gameState?.status === 'waiting' || roomData?.gameState?.status === 'choosing_word') {
-        setTimeLeft(90); // Reset UI timer
+        setTimeLeft(90);
     }
   }, [roomData?.gameState?.status, roomData?.gameState?.turnEndTime, isMyTurn, correctGuessers.length]);
 
@@ -440,6 +411,7 @@ export default function Pictionary() {
     return Object.entries(roomData.players).map(([name, data]) => ({ name, score: data.score || 0 })).sort((a, b) => b.score - a.score).slice(0, 3);
   };
 
+  // --- RENDER SCREEN BELUM MASUK ROOM ---
   if (!isJoined) {
     return (
       <div>
@@ -460,12 +432,10 @@ export default function Pictionary() {
   return (
     <div style={{ position: 'relative', display: 'flex', flexDirection: 'column', gap: '10px' , marginTop: '10px'}}>
 
-      {/* CSS KHUSUS ANIMASI LOADING BAR */}
+      {/* CSS KHUSUS ANIMASI LOADING BAR & CARD UI */}
       <style>{`
-        @keyframes shrinkBar {
-          from { width: 100%; }
-          to { width: 0%; }
-        }
+        @keyframes shrinkBar { from { width: 100%; } to { width: 0%; } }
+        @keyframes blinkText { 0% { opacity: 1; } 50% { opacity: 0.4; } 100% { opacity: 1; } }
       `}</style>
 
       {/* HEADER NAVIGASI & INFO */}
@@ -475,13 +445,10 @@ export default function Pictionary() {
         </div>
 
         <div style={{ flex: 1, display: 'flex', justifyContent: 'center', gap: '15px', position: 'relative' }}>
-          <button onClick={() => setIsMuted(!isMuted)} style={{ background: 'none', border: 'none', fontSize: '20px', cursor: 'pointer', padding: 0 }} title={isMuted ? "Hidupkan Musik" : "Matikan Musik"}>
-            {isMuted ? '🔇' : '🎵'}
-          </button>
           <button onClick={() => setShowTooltip(!showTooltip)} style={{ background: 'none', border: 'none', fontSize: '20px', cursor: 'pointer', padding: 0 }}>🐛</button>
           {showTooltip && (
             <div style={{ position: 'absolute', top: '35px', left: '50%', transform: 'translateX(-50%)', background: '#334155', color: '#f8fafc', padding: '8px 12px', borderRadius: '6px', fontSize: '11px', width: '180px', textAlign: 'center', zIndex: 100, boxShadow: '0 4px 10px rgba(0,0,0,0.5)', border: '1px solid #475569' }}>
-              Refresh halaman jika layar macet (musik akan jalan otomatis saat disentuh).
+              Refresh halaman ini jika terjadi bug, layar macet, atau garis putus-putus.
             </div>
           )}
         </div>
@@ -503,10 +470,14 @@ export default function Pictionary() {
           <span>
             {roomData?.gameState?.status === "choosing_word"
               ? `${currentDrawerName} sedang memilih kata...`
-              : (isMyTurn ? `Gambarkan: ${roomData.gameState.currentWord}` : `${currentDrawerName || 'Seseorang'} menggambar...`)
+              : roomData?.gameState?.status === "starting"
+                 ? "Bersiap-siap..."
+                 : (isMyTurn ? `Gambarkan: ${roomData.gameState.currentWord}` : `${currentDrawerName || 'Seseorang'} menggambar...`)
             }
           </span>
-          <span style={{ color: timeLeft <= 10 ? '#ef4444' : '#facc15' }}>⏳ {Math.floor(timeLeft / 60)}:{(timeLeft % 60).toString().padStart(2, '0')}</span>
+          <span style={{ color: timeLeft <= 10 ? '#ef4444' : '#facc15', animation: timeLeft <= 10 ? 'blinkText 1s infinite' : 'none' }}>
+            ⏳ {Math.floor(timeLeft / 60)}:{(timeLeft % 60).toString().padStart(2, '0')}
+          </span>
         </div>
       )}
 
@@ -519,67 +490,73 @@ export default function Pictionary() {
       {/* AREA CANVAS & ANIMASI OVERLAY */}
       <div className="canvas-container" style={{ position: 'relative', margin: '0' }}>
 
-        {/* OVERLAY: PEMILIHAN KATA DENGAN LOADING BAR 5 DETIK */}
+        {/* OVERLAY: PEMILIHAN KATA UI DIPERKECIL (Hanya di tengah canvas) */}
         {roomData?.gameState?.status === "choosing_word" && (
-          <div className="overlay-anim" style={{ flexDirection: 'column', background: 'rgba(15,23,42,0.98)', zIndex: 30 }}>
+          <div className="overlay-anim" style={{ flexDirection: 'column', background: 'rgba(15,23,42,0.85)', zIndex: 30 }}>
             {isMyTurn ? (
-              <>
-                <h2 style={{ color: '#facc15', margin: '0 0 5px 0', fontSize: '1.5rem', textAlign: 'center' }}>Pilih Kata Buat Digambar!</h2>
+              <div style={{ background: '#1e293b', padding: '15px', borderRadius: '12px', width: '85%', border: '2px solid #334155', boxShadow: '0 10px 25px rgba(0,0,0,0.5)' }}>
+                <h3 style={{ color: '#facc15', margin: '0 0 10px 0', fontSize: '1.1rem', textAlign: 'center' }}>Pilih Kata!</h3>
 
                 {/* Bar Waktu Memilih Kata */}
-                <div style={{ width: '80%', background: '#334155', height: '6px', borderRadius: '3px', marginBottom: '20px', overflow: 'hidden' }}>
-                   <div style={{ width: `${(chooseTimer / 5) * 100}%`, background: '#facc15', height: '100%', transition: 'width 1s linear' }} />
+                <div style={{ width: '100%', background: '#0f172a', height: '4px', borderRadius: '2px', marginBottom: '15px', overflow: 'hidden' }}>
+                   <div style={{ width: `${(chooseTimer / 8) * 100}%`, background: '#3b82f6', height: '100%', transition: 'width 1s linear' }} />
                 </div>
 
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', width: '80%' }}>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', justifyContent: 'center' }}>
                   {roomData.gameState.wordChoices?.map((word, idx) => (
                     <button
                       key={idx}
                       onClick={() => handleWordSelect(word)}
-                      style={{ padding: '15px', background: '#3b82f6', color: 'white', border: 'none', borderRadius: '8px', fontSize: '18px', fontWeight: 'bold', cursor: 'pointer', boxShadow: '0 4px 0 #1d4ed8' }}
-                      onMouseDown={e => e.currentTarget.style.transform = 'translateY(4px)'}
-                      onMouseUp={e => e.currentTarget.style.transform = 'translateY(0)'}
+                      style={{ flex: '1 1 45%', padding: '10px 5px', background: '#334155', color: 'white', border: '1px solid #475569', borderRadius: '6px', fontSize: '13px', fontWeight: 'bold', cursor: 'pointer' }}
                     >
                       {word}
                     </button>
                   ))}
                 </div>
-              </>
+              </div>
             ) : (
-              <div style={{ textAlign: 'center' }}>
-                <h2 style={{ color: '#94a3b8', fontSize: '1.2rem', marginBottom: '15px' }}>
-                  Menunggu <span style={{color: '#f8fafc'}}>{currentDrawerName}</span> memilih kata...
-                </h2>
-                {/* Bar Loading Untuk Penonton biar tau game jalan */}
-                <div style={{ width: '200px', height: '4px', background: '#334155', borderRadius: '2px', overflow: 'hidden', margin: '0 auto' }}>
-                   <div style={{ width: '100%', height: '100%', background: '#facc15', animation: 'shrinkBar 5s linear forwards' }} />
+              <div style={{ textAlign: 'center', background: '#1e293b', padding: '15px', borderRadius: '12px', border: '1px solid #334155' }}>
+                <p style={{ color: '#94a3b8', fontSize: '0.9rem', margin: '0 0 10px 0' }}>
+                  Menunggu <b style={{color: '#f8fafc'}}>{currentDrawerName}</b> memilih...
+                </p>
+                <div style={{ width: '150px', height: '4px', background: '#0f172a', borderRadius: '2px', overflow: 'hidden', margin: '0 auto' }}>
+                   <div style={{ width: '100%', height: '100%', background: '#facc15', animation: 'shrinkBar 8s linear forwards' }} />
                 </div>
               </div>
             )}
           </div>
         )}
 
-        {/* OVERLAY: ANIMASI MULAI 3...2...1 */}
-        {countdown && (
+        {/* OVERLAY: ANIMASI MULAI 3...2...1 (HANYA MUNCUL SAAT STATUS 'starting') */}
+        {roomData?.gameState?.status === "starting" && isMyTurn && countdown && (
           <div className="overlay-anim" style={{zIndex: 25, flexDirection: 'column'}}>
-            <div style={{fontSize: '4rem'}}>{countdown}</div>
-            <div style={{ width: '150px', height: '4px', background: '#334155', marginTop: '20px', borderRadius: '2px', overflow: 'hidden' }}>
-               <div style={{ width: '100%', height: '100%', background: '#22c55e', animation: 'shrinkBar 3s linear forwards' }} />
-            </div>
+            <div style={{fontSize: '4rem', textShadow: '2px 2px 10px rgba(0,0,0,0.8)'}}>{countdown}</div>
           </div>
         )}
 
-        {roleAnim && !isSpectator && roomData?.gameState?.status !== "choosing_word" && <div className="overlay-anim" style={{ fontSize: '1.2rem', zIndex: 25 }}>{isMyTurn ? "🖌️ Giliranmu!" : "🤔 Siap Tebak!"}</div>}
+        {/* Mencegah penonton melihat hitungan 321 yang error, gantikan dengan bar tunggu sinkronisasi */}
+        {roomData?.gameState?.status === "starting" && !isMyTurn && (
+           <div className="overlay-anim" style={{zIndex: 25, flexDirection: 'column', background: 'rgba(15,23,42,0.8)'}}>
+             <span style={{fontSize: '30px'}}>⏳</span>
+             <p style={{fontSize: '12px', color: '#cbd5e1', marginTop: '5px'}}>Menyinkronkan waktu...</p>
+           </div>
+        )}
 
-        {/* OVERLAY AKHIR RONDE (Tebakan Benar / Waktu Habis) */}
+        {/* ANIMASI "GILIRANMU / SIAP TEBAK" */}
+        {roleAnim && !isSpectator && roomData?.gameState?.status === "playing" && (
+           <div className="overlay-anim" style={{ fontSize: '1.2rem', zIndex: 25, animation: 'fadeOut 2s forwards' }}>
+             {isMyTurn ? "🖌️ Waktu Berjalan!" : "🤔 Mulai Nebak!"}
+           </div>
+        )}
+
+        {/* OVERLAY AKHIR RONDE */}
         {roomData?.gameState?.status === 'roundEnd' && (
-          <div className="overlay-anim" style={{ flexDirection: 'column', background: 'rgba(15,23,42,0.98)', zIndex: 30 }}>
-            <h2 style={{ fontSize: '1.5rem', color: roomData.gameState.endReason === 'timeup' ? '#ef4444' : '#22c55e', marginBottom: '10px' }}>
+          <div className="overlay-anim" style={{ flexDirection: 'column', background: 'rgba(15,23,42,0.95)', zIndex: 30 }}>
+            <h2 style={{ fontSize: '1.5rem', color: roomData.gameState.endReason === 'timeup' ? '#ef4444' : '#22c55e', margin: '0 0 5px 0' }}>
               {roomData.gameState.endReason === 'timeup' ? '⏰ WAKTU HABIS!' : '🎉 SEMUA MENEBAK!'}
             </h2>
-            <p style={{ fontSize: '1rem', color: 'white', marginBottom: '20px' }}>Jawabannya adalah: <br/><span style={{color: '#facc15', fontSize: '1.5rem'}}>{roomData.gameState.currentWord}</span></p>
-            {/* Loading Bar Jeda Antar Ronde 4 detik */}
-            <div style={{ width: '200px', height: '4px', background: '#334155', borderRadius: '2px', overflow: 'hidden' }}>
+            <p style={{ fontSize: '1rem', color: 'white', marginBottom: '15px' }}>Jawabannya: <br/><span style={{color: '#facc15', fontSize: '1.3rem', fontWeight: 'bold'}}>{roomData.gameState.currentWord}</span></p>
+            <div style={{ width: '150px', height: '4px', background: '#334155', borderRadius: '2px', overflow: 'hidden' }}>
                <div style={{ width: '100%', height: '100%', background: '#3b82f6', animation: 'shrinkBar 4s linear forwards' }} />
             </div>
           </div>
@@ -588,20 +565,19 @@ export default function Pictionary() {
         {/* OVERLAY GAME OVER (PODIUM JUARA) */}
         {roomData?.gameState?.status === 'gameOver' && (
           <div className="overlay-anim" style={{ flexDirection: 'column', background: 'rgba(15,23,42,0.98)', zIndex: 30 }}>
-            <h2 style={{ fontSize: '2rem', marginBottom: '20px', color: '#facc15' }}>🏆 PODIUM 🏆</h2>
+            <h2 style={{ fontSize: '2rem', marginBottom: '15px', color: '#facc15' }}>🏆 PODIUM 🏆</h2>
             {getTopPlayers().map((p, i) => (
-               <div key={p.name} style={{ margin: '5px 0', fontWeight: 'bold', fontSize: i===0?'1.5rem':i===1?'1.2rem':'1rem', color: i===0?'#facc15':i===1?'#cbd5e1':'#d97706' }}>
+               <div key={p.name} style={{ margin: '3px 0', fontWeight: 'bold', fontSize: i===0?'1.3rem':i===1?'1.1rem':'0.9rem', color: i===0?'#facc15':i===1?'#cbd5e1':'#d97706' }}>
                  #{i+1} {p.name} <span style={{fontSize:'0.8em'}}>({p.score} Pts)</span>
                </div>
             ))}
-            {/* Loading Bar Reset Game 7 detik */}
-            <div style={{ width: '200px', height: '4px', background: '#334155', marginTop: '25px', borderRadius: '2px', overflow: 'hidden' }}>
+            <div style={{ width: '200px', height: '4px', background: '#334155', marginTop: '20px', borderRadius: '2px', overflow: 'hidden' }}>
                <div style={{ width: '100%', height: '100%', background: '#facc15', animation: 'shrinkBar 7s linear forwards' }} />
             </div>
           </div>
         )}
 
-        {isSpectator && <div style={{ position: 'absolute', top: 10, left: 0, right: 0, textAlign: 'center', zIndex: 20, color: '#facc15', fontWeight: 'bold' }}>👀 Mode Penonton</div>}
+        {isSpectator && <div style={{ position: 'absolute', top: 10, left: 0, right: 0, textAlign: 'center', zIndex: 20, color: '#facc15', fontWeight: 'bold', fontSize: '12px' }}>👀 Mode Penonton</div>}
         {isPlaying && !isMyTurn && <div style={{ position: 'absolute', inset: 0, zIndex: 10 }}></div>}
 
         <canvas
@@ -611,6 +587,11 @@ export default function Pictionary() {
           onTouchStart={startDrawing} onTouchMove={draw} onTouchEnd={stopDrawing}
         />
       </div>
+
+      {/* CSS TAMBAHAN UNTUK FADEOUT */}
+      <style>{`
+        @keyframes fadeOut { 0% {opacity: 1;} 70% {opacity: 1;} 100% {opacity: 0;} }
+      `}</style>
 
       {/* AREA CHAT */}
       <div className="chat-container">
@@ -622,9 +603,9 @@ export default function Pictionary() {
           )) : <p style={{ color: '#64748b', fontSize: '10px', textAlign: 'center' }}>Obrolan kosong...</p>}
         </div>
 
-        {isSpectator || roomData?.gameState?.status === "choosing_word" ? (
+        {isSpectator || roomData?.gameState?.status === "choosing_word" || roomData?.gameState?.status === "starting" ? (
           <div style={{ padding: '8px', textAlign: 'center', background: '#334155', color: '#94a3b8', fontSize: '12px' }}>
-             {roomData?.gameState?.status === "choosing_word" ? "Menunggu penggambar..." : "Hanya penonton."}
+             {roomData?.gameState?.status === "choosing_word" || roomData?.gameState?.status === "starting" ? "Menyiapkan ronde..." : "Hanya penonton."}
           </div>
         ) : (
           <form onSubmit={submitGuess} className="chat-input-area">
